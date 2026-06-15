@@ -1,0 +1,106 @@
+// LinkU MVP — SQLite schema (zero-infra). Arrays stored as JSON strings, enums as String.
+// To go to production: switch provider to "postgresql", re-migrate, restore native arrays/enums.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String   @id @default(cuid())
+  helloTalkUserId    String   @unique // = profile.sub; idempotent re-login (AC-AUTH-2)
+  displayName        String
+  avatarUrl          String?
+  nativeLanguage     String // translation target language
+  learningLanguages  String   @default("[]") // JSON string array
+  languageLevel      String? // A1..C2
+  gender             String // MALE|FEMALE|OTHER
+  region             String?
+  timezone           String?
+  bio                String?
+  interests          String   @default("[]") // JSON string array
+  realPersonVerified Boolean  @default(false)
+  trustScore         Int      @default(50)
+  intent             String   @default("SOCIAL") // SOCIAL|DEEP|LANG_SOCIAL
+  createdAt          DateTime @default(now())
+  wallet             Wallet?
+}
+
+model Wallet {
+  userId             String    @id
+  user               User      @relation(fields: [userId], references: [id])
+  diamonds           Int       @default(0)
+  trialSecondsLeft   Int       @default(420)
+  subscriptionTier   String    @default("NONE") // NONE|WEEKLY|MONTHLY
+  subscriptionExpiry DateTime?
+}
+
+model CallSession {
+  id            String    @id @default(cuid())
+  callerId      String
+  calleeId      String
+  mode          String // VIDEO|VOICE
+  status        String // RINGING|ACTIVE|ENDED|DECLINED|MISSED
+  translationOn Boolean   @default(true)
+  startedAt     DateTime?
+  endedAt       DateTime?
+  durationSec   Int       @default(0)
+  translatedSec Int       @default(0)
+  createdAt     DateTime  @default(now())
+
+  @@index([callerId])
+  @@index([calleeId])
+}
+
+model Gift {
+  id        String   @id @default(cuid())
+  callId    String
+  fromId    String
+  toId      String
+  giftType  String
+  diamonds  Int
+  createdAt DateTime @default(now())
+}
+
+model Friendship {
+  id        String   @id @default(cuid())
+  userIdA   String
+  userIdB   String
+  status    String   @default("ACCEPTED") // PENDING|ACCEPTED
+  createdAt DateTime @default(now())
+
+  @@unique([userIdA, userIdB])
+}
+
+model Block {
+  id            String   @id @default(cuid())
+  userId        String
+  blockedUserId String
+  createdAt     DateTime @default(now())
+
+  @@unique([userId, blockedUserId])
+}
+
+model Report {
+  id         String   @id @default(cuid())
+  reporterId String
+  targetId   String
+  callId     String?
+  reason     String
+  detail     String?
+  createdAt  DateTime @default(now())
+}
+
+model RiskEvent {
+  id        String   @id @default(cuid())
+  userId    String
+  callId    String?
+  type      String
+  score     Int
+  snippet   String?
+  createdAt DateTime @default(now())
+}

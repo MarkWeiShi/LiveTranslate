@@ -1,0 +1,8 @@
+{
+  "name": "app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "typecheck": "echo \"(app typecheck wired in M1)\" && exit 0"
+  }
+}
