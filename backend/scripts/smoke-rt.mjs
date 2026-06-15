@@ -118,6 +118,25 @@ async function main() {
   const pw = await paywallP;
   ok('AC-PAY-1 paywall fires when trial exhausted', pw.v?.reason === 'trial_exhausted', pw.err ?? '');
 
+  // ---- AC-PAY-2: subscribe -> translation resumes to active ----
+  const resumeP = safe(waitFor(ms, 'translation.state', { predicate: (p) => p.callId === callId && p.state === 'active' }));
+  const sub = await req('POST', '/iap/verify', { token: male.token, body: { receipt: 'mock_month' } });
+  const resumed = await resumeP;
+  ok('AC-PAY-2 subscription resumes translation', sub.json?.subscriptionTier === 'MONTHLY' && resumed.v?.state === 'active', `tier=${sub.json?.subscriptionTier} left=${resumed.v?.translatedSecLeft}`);
+
+  // ---- gift: buy diamonds, send gift -> peer receives gift_received ----
+  await req('POST', '/iap/verify', { token: male.token, body: { receipt: 'mock_diamonds_100' } });
+  const giftP = safe(waitFor(fs, 'gift_received', { predicate: (p) => p.callId === callId }));
+  const gift = await req('POST', `/calls/${callId}/gift`, { token: male.token, body: { giftType: 'rose' } });
+  const giftEvt = await giftP;
+  ok('gift deducts diamonds + peer receives gift_received', gift.status < 300 && gift.json?.wallet?.diamonds === 99 && giftEvt.v?.giftType === 'rose', `diamonds=${gift.json?.wallet?.diamonds}`);
+
+  // ---- AC-SAFE-1: fraud phrase in caption -> risk_warning ----
+  const riskP = safe(waitFor(fs, 'risk_warning', { predicate: (p) => p.callId === callId }));
+  await req('POST', '/internal/agent/report', { agent: true, body: { callId, speakerId: female.user.id, seconds: 0, originalText: 'invest with me', translatedText: '我带你投资，稳赚不亏' } });
+  const risk = await riskP;
+  ok('AC-SAFE-1 risk_warning on scam phrase', risk.v?.riskType === 'crypto_investment' && (risk.v?.level === 'high' || risk.v?.level === 'medium'), risk.err ?? `type=${risk.v?.riskType}`);
+
   // ---- AC-REL-1: end call -> history has duration + translatedSec ----
   const ended = await req('POST', `/calls/${callId}/end`, { token: male.token, body: { reason: 'smoke' } });
   ok('POST /end returns duration+translatedSec', ended.status < 300 && typeof ended.json?.translatedSec === 'number', `dur=${ended.json?.durationSec} xlated=${ended.json?.translatedSec}`);

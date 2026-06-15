@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
 import { BlocksService } from './blocks.service';
+import { ReportsService } from './reports.service';
 import { RiskDetectionService } from './risk-detection.service';
 import { SafetyController } from './safety.controller';
 
-// Blocks + risk detection (used by discovery/calls/translation). Reports endpoint added with controller.
+// Blocks + reports + risk detection (used by discovery/calls/translation).
 @Module({
-  providers: [BlocksService, RiskDetectionService],
+  providers: [BlocksService, ReportsService, RiskDetectionService],
   controllers: [SafetyController],
   exports: [BlocksService, RiskDetectionService],
 })

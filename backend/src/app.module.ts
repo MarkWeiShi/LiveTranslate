@@ -11,6 +11,9 @@ import { DiscoveryModule } from './discovery/discovery.module';
 import { CallsModule } from './calls/calls.module';
 import { TranslationModule } from './translation/translation.module';
 import { RealtimeModule } from './realtime/realtime.module';
+import { WalletModule } from './wallet/wallet.module';
+import { GiftsModule } from './gifts/gifts.module';
+import { FriendsModule } from './friends/friends.module';
 
 @Module({
   imports: [
@@ -26,6 +29,9 @@ import { RealtimeModule } from './realtime/realtime.module';
     CallsModule,
     TranslationModule,
     RealtimeModule,
+    WalletModule,
+    GiftsModule,
+    FriendsModule,
   ],
 })
 export class AppModule {}

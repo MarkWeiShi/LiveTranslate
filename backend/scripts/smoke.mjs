@@ -93,16 +93,27 @@ async function main() {
     !ids.includes(f3.json.user.id),
   );
 
-  // block exclusion (both directions) + /users/:id blocked flag
+  // ---- AC-SAFE-2: report + block -> discovery excludes + re-call rejected ----
+  const report = await req('POST', '/reports', { token: maleTok, body: { targetId: f2Id, reason: 'SCAM_FRAUD', detail: 'smoke' } });
+  ok('AC-SAFE-2 report persists (201)', report.status === 201 && !!report.json?.id);
+
   await req('POST', '/blocks', { token: maleTok, body: { blockedUserId: f2Id } });
   const discAfterBlock = await req('GET', '/discovery?gender=FEMALE&onlineOnly=true', { token: maleTok });
   const idsB = (discAfterBlock.json ?? []).map((c) => c.id);
-  ok('blocked user excluded from discovery', !idsB.includes(f2Id) && idsB.includes(f1Id));
+  ok('AC-SAFE-2 blocked user excluded from discovery', !idsB.includes(f2Id) && idsB.includes(f1Id));
   const detail = await req('GET', `/users/${f2Id}`, { token: maleTok });
-  ok('/users/:id shows blocked=true for blocked peer', detail.json?.blocked === true);
+  ok('AC-SAFE-2 /users/:id shows blocked=true', detail.json?.blocked === true);
+  const recall = await req('POST', '/calls', { token: maleTok, body: { calleeId: f2Id, mode: 'VIDEO' } });
+  ok('AC-SAFE-2 re-call blocked peer rejected (403)', recall.status === 403, `code=${recall.json?.code}`);
   const blockList = await req('GET', '/blocks', { token: maleTok });
   const blockId = (blockList.json ?? []).find((b) => b.blockedUserId === f2Id)?.id;
   await req('DELETE', `/blocks/${blockId}`, { token: maleTok }); // restore for later milestones
+
+  // ---- M7: friends add + list ----
+  const addF = await req('POST', '/friends', { token: maleTok, body: { friendId: f1Id } });
+  ok('friend add returns friend card', addF.status < 300 && addF.json?.id === f1Id && !!addF.json?.friendshipId);
+  const friends = await req('GET', '/friends', { token: maleTok });
+  ok('friends list includes added friend', (friends.json ?? []).some((f) => f.id === f1Id));
 
   console.log(`\n=== ${pass} passed, ${fail} failed ===`);
   process.exitCode = fail ? 1 : 0;
