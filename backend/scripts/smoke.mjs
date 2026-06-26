@@ -115,6 +115,38 @@ async function main() {
   const friends = await req('GET', '/friends', { token: maleTok });
   ok('friends list includes added friend', (friends.json ?? []).some((f) => f.id === f1Id));
 
+  // ---- M8: Telegram 获客归因（LOOP-L2，mock）----
+  const tgUser = encodeURIComponent(JSON.stringify({ id: 777001, username: 'smoke_tg', language_code: 'zh' }));
+  const tgInit = `query_id=AAA&user=${tgUser}&auth_date=1719300000&start_param=ref_smoke&hash=mock`;
+  const attr = await req('POST', '/attribution', { body: { tgWebAppData: tgInit } });
+  ok(
+    'LOOP-L2 attribution records telegram source + startParam',
+    attr.status === 201 && attr.json?.source === 'telegram' && attr.json?.externalId === '777001' && attr.json?.startParam === 'ref_smoke',
+    `source=${attr.json?.source} ext=${attr.json?.externalId} start=${attr.json?.startParam}`,
+  );
+  const AGENT = process.env.AGENT_INGRESS_TOKEN ?? 'dev_agent_token';
+  const cntRes = await fetch(BASE + '/internal/attribution/count?source=telegram', { headers: { 'x-agent-token': AGENT } });
+  const cnt = await cntRes.json().catch(() => null);
+  ok('LOOP-L2 internal count reflects recorded telegram attribution', cntRes.status === 200 && (cnt?.count ?? 0) >= 1, `count=${cnt?.count}`);
+  const guarded = await fetch(BASE + '/internal/attribution/count?source=telegram'); // no token
+  ok('LOOP-L2 internal count is agent-token guarded (401 without token)', guarded.status === 401);
+
+  // ---- M9: 多渠道归因 + 漏斗（x / messenger / instagram，UTM 外链）----
+  for (const [src, ch] of [['twitter', 'x'], ['fb', 'messenger'], ['ig', 'instagram']]) {
+    const r = await req('POST', '/attribution', { body: { source: src, utm: { source: src, campaign: 'launch', ref: 'inv_' + ch } } });
+    ok(`multichannel attribution ${src} → channel=${ch}`, r.status === 201 && r.json?.channel === ch && r.json?.ref === 'inv_' + ch, `ch=${r.json?.channel} ref=${r.json?.ref}`);
+  }
+  // x 渠道补 signup + activate，构成完整漏斗
+  await req('POST', '/attribution/event', { body: { channel: 'x', ref: 'inv_x', stage: 'signup' } });
+  await req('POST', '/attribution/event', { body: { channel: 'x', ref: 'inv_x', stage: 'activate' } });
+  const funRes = await fetch(BASE + '/internal/attribution/funnel', { headers: { 'x-agent-token': AGENT } });
+  const fun = await funRes.json().catch(() => null);
+  const xRow = (fun?.channels ?? []).find((c) => c.channel === 'x');
+  ok('funnel: x 渠道 land/signup/activate 齐全且转化率算出', funRes.status === 200 && xRow && xRow.land >= 1 && xRow.signup >= 1 && xRow.activate >= 1 && typeof xRow.signupRate === 'number',
+    xRow ? `x land=${xRow.land} signup=${xRow.signup} activate=${xRow.activate} sRate=${xRow.signupRate}` : 'no x row');
+  const funGuard = await fetch(BASE + '/internal/attribution/funnel'); // no token
+  ok('funnel internal is agent-token guarded (401)', funGuard.status === 401);
+
   console.log(`\n=== ${pass} passed, ${fail} failed ===`);
   process.exitCode = fail ? 1 : 0;
 }

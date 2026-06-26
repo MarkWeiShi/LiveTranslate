@@ -1,4 +1,14 @@
 import type {
+  AttributionBody,
+  AttributionDto,
+  FunnelEventBody,
+  CreateRoomResponse,
+  JoinRoomResponse,
+  GrowthProfileDto,
+  AwardXpResult,
+  BondDto,
+  FamilyDto,
+  FamilyLeaderboardDto,
   CallMode,
   CallSessionDto,
   CreateCallResponse,
@@ -24,6 +34,40 @@ function qs(q: Record<string, unknown>): string {
 export const api = {
   loginMock: (mockUserId: string) =>
     apiFetch<LoginResponse>('POST', '/auth/hellotalk/callback', { mockUserId }),
+  reportAttribution: (b: AttributionBody) =>
+    apiFetch<AttributionDto>('POST', '/attribution', b),
+  reportFunnelEvent: (b: FunnelEventBody) =>
+    apiFetch<{ ok: true }>('POST', '/attribution/event', b),
+  // 巴别塔语聊房
+  createRoom: () => apiFetch<CreateRoomResponse>('POST', '/rooms'),
+  joinRoom: (id: string, language: string) =>
+    apiFetch<JoinRoomResponse>('POST', `/rooms/${id}/join`, { language }),
+  roomUtterance: (id: string, text: string) =>
+    apiFetch<{ recipients: number }>('POST', `/rooms/${id}/utterance`, { text }),
+  leaveRoom: (id: string) => apiFetch<void>('POST', `/rooms/${id}/leave`),
+  // 玩法层
+  roomBarrage: (id: string, text: string) =>
+    apiFetch<{ recipients: number }>('POST', `/rooms/${id}/barrage`, { text }),
+  roomRaiseHand: (id: string) => apiFetch<{ ok: true }>('POST', `/rooms/${id}/raise-hand`),
+  roomLowerHand: (id: string) => apiFetch<{ ok: true }>('POST', `/rooms/${id}/lower-hand`),
+  telephoneStart: (id: string, text: string) =>
+    apiFetch<{ gameId: string }>('POST', `/rooms/${id}/telephone/start`, { text }),
+  telephonePass: (id: string, gameId: string, text: string) =>
+    apiFetch<{ done: boolean }>('POST', `/rooms/${id}/telephone/pass`, { gameId, text }),
+  quizStart: (id: string) => apiFetch<{ quizId: string }>('POST', `/rooms/${id}/quiz/start`),
+  quizAnswer: (id: string, questionId: string, choice: number) =>
+    apiFetch<{ ok: true }>('POST', `/rooms/${id}/quiz/answer`, { questionId, choice }),
+  // 成长体系
+  growthMe: () => apiFetch<GrowthProfileDto>('GET', '/growth/me'),
+  growthAward: (amount: number, reason?: string) =>
+    apiFetch<AwardXpResult>('POST', '/growth/award', { amount, reason }),
+  growthBond: (peerId: string, amount?: number) =>
+    apiFetch<BondDto>('POST', '/growth/bond', { peerId, amount }),
+  createFamily: (name: string) => apiFetch<FamilyDto>('POST', '/families', { name }),
+  joinFamily: (id: string) => apiFetch<FamilyDto>('POST', `/families/${id}/join`),
+  contributeFamily: (id: string, amount: number) =>
+    apiFetch<FamilyDto>('POST', `/families/${id}/contribute`, { amount }),
+  familyLeaderboard: () => apiFetch<FamilyLeaderboardDto>('GET', '/families/leaderboard'),
   me: () => apiFetch<MeDto>('GET', '/users/me'),
   updateMe: (b: Partial<{ intent: string; bio: string; nativeLanguage: string; learningLanguages: string[] }>) =>
     apiFetch<UserCard>('PATCH', '/users/me', b),

@@ -23,4 +23,10 @@ export class GeminiTranslationEngine implements TranslationEngine {
   injectFault(_callId: string, _fault: InjectedFault): void {
     /* no-op in real mode */
   }
+
+  // MVP passthrough：真实模式语聊房字幕将由外部 Gemini agent 产出（见 agent/README.md）。
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async translate(text: string, _sourceLang: string, _targetLang: string): Promise<string> {
+    return text;
+  }
 }

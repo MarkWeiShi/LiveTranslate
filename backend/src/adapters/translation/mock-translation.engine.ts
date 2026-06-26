@@ -29,6 +29,18 @@ export class MockTranslationEngine implements TranslationEngine {
     else this.faults.set(callId, fault);
   }
 
+  /** 语聊房字幕 MT：命中平行短语库则跨语映射，否则回退可信占位。 */
+  async translate(text: string, sourceLang: string, targetLang: string): Promise<string> {
+    if (!text || sourceLang === targetLang) return text;
+    const src = PHRASE_BANK[sourceLang as Lang];
+    const tgt = PHRASE_BANK[targetLang as Lang];
+    if (src && tgt) {
+      const idx = src.indexOf(text);
+      if (idx >= 0) return tgt[idx];
+    }
+    return `[${targetLang}] ${text}`;
+  }
+
   async produceTick(ctx: TickContext): Promise<TickResult> {
     const fault = this.faults.get(ctx.callId) ?? 'none';
     if (fault === 'fail') {

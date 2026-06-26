@@ -14,6 +14,9 @@ import { RealtimeModule } from './realtime/realtime.module';
 import { WalletModule } from './wallet/wallet.module';
 import { GiftsModule } from './gifts/gifts.module';
 import { FriendsModule } from './friends/friends.module';
+import { AttributionModule } from './attribution/attribution.module';
+import { RoomsModule } from './rooms/rooms.module';
+import { GrowthModule } from './growth/growth.module';
 
 @Module({
   imports: [
@@ -32,6 +35,9 @@ import { FriendsModule } from './friends/friends.module';
     WalletModule,
     GiftsModule,
     FriendsModule,
+    AttributionModule,
+    RoomsModule,
+    GrowthModule,
   ],
 })
 export class AppModule {}

@@ -104,3 +104,71 @@ model RiskEvent {
   snippet   String?
   createdAt DateTime @default(now())
 }
+
+// 多渠道获客归因（telegram / x / messenger / instagram ...）。userId 留待注册闭环回填。
+model Attribution {
+  id         String   @id @default(cuid())
+  source     String? // 来源原文（twitter / fb / ig ...）
+  channel    String // 归一化渠道：telegram|x|messenger|instagram|whatsapp|web|direct
+  externalId String? // telegram user id（字符串存储）
+  username   String?
+  startParam String? // telegram start_param（兼容保留）
+  ref        String? // 统一 referral（telegram start_param 或 utm ref）—裂变归因
+  campaign   String? // utm_campaign
+  medium     String? // utm_medium
+  userId     String? // 注册后回填（当前可空）
+  raw        String? // 原始 initData / 落地 URL，便于审计
+  verified   Boolean  @default(false) // initData HMAC 是否通过（仅 telegram 真实模式）
+  createdAt  DateTime @default(now())
+
+  @@index([channel])
+}
+
+// 转化漏斗事件：land(落地) → signup(注册) → activate(首通/首条互动)。按渠道聚合。
+model FunnelEvent {
+  id        String   @id @default(cuid())
+  channel   String
+  ref       String?
+  stage     String // land | signup | activate
+  userId    String?
+  createdAt DateTime @default(now())
+
+  @@index([channel, stage])
+}
+
+// 成长体系：个人积分/等级
+model GrowthProfile {
+  userId    String   @id
+  xp        Int      @default(0)
+  level     Int      @default(1)
+  updatedAt DateTime @updatedAt
+}
+
+// 跨国 CP 亲密度（双人；userLo<userHi 归一化）
+model Bond {
+  id        String   @id @default(cuid())
+  userLo    String
+  userHi    String
+  intimacy  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@unique([userLo, userHi])
+}
+
+// 家族战
+model Family {
+  id        String   @id @default(cuid())
+  name      String
+  score     Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
+model FamilyMember {
+  id           String @id @default(cuid())
+  familyId     String
+  userId       String
+  contribution Int    @default(0)
+
+  @@unique([familyId, userId])
+  @@index([userId])
+}

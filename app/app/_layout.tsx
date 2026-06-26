@@ -7,6 +7,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useAuthStore } from '@/stores/authStore';
 import { RealtimeBridge } from '@/components/RealtimeBridge';
 import { IncomingCallModal } from '@/components/IncomingCallModal';
+import { reportTelegramLaunch } from '@/telegram/launchAttribution';
 import { colors } from '@/theme';
 
 const queryClient = new QueryClient({
@@ -33,6 +34,10 @@ export default function RootLayout() {
   useEffect(() => {
     void hydrate();
   }, [hydrate]);
+  // H5：Telegram 内启动则上报归因（非 Telegram 环境无操作）。
+  useEffect(() => {
+    void reportTelegramLaunch();
+  }, []);
   useAuthGate();
 
   return (
