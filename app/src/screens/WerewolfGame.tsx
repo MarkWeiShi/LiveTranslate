@@ -9,6 +9,7 @@ import {
   type WolfRolePayload,
   type WolfSpeechPayload,
   type WolfStatePayload,
+  type WolfFxPayload,
 } from '@linku/shared';
 import { api } from '@/api/endpoints';
 import { useAuthStore } from '@/stores/authStore';
@@ -54,6 +55,8 @@ export function WerewolfGame() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fx, setFx] = useState<NightFxState | null>(null);
+  const [voiceReady, setVoiceReady] = useState(false);
+  const [micOn, setMicOn] = useState(false);
   const fxId = useRef(0);
   const audioRef = useRef<RoomAudioHandle | null>(null);
   const feedRef = useRef<ScrollView>(null);
@@ -88,12 +91,14 @@ export function WerewolfGame() {
     const onHost = (p: WolfHostPayload) => { if (mine(p.gameId)) { setHostLines((h) => [...h, p].slice(-60)); scrollFeed(); } };
     const onSpeech = (p: WolfSpeechPayload) => { if (mine(p.gameId)) { setSpeeches((s) => [...s, p].slice(-80)); scrollFeed(); } };
     const onOver = (p: WolfGameOverPayload) => { if (mine(p.gameId)) { setOver(p); setPrompt(null); } };
+    const onFx = (p: WolfFxPayload) => { if (mine(p.gameId)) triggerFx(p.type); };
 
     socket.on(WEREWOLF_EVENTS.STATE, onState);
     socket.on(WEREWOLF_EVENTS.ROLE, onRole);
     socket.on(WEREWOLF_EVENTS.PRIVATE, onPrivate);
     socket.on(WEREWOLF_EVENTS.HOST, onHost);
     socket.on(WEREWOLF_EVENTS.SPEECH, onSpeech);
+    socket.on(WEREWOLF_EVENTS.FX, onFx);
     socket.on(WEREWOLF_EVENTS.GAME_OVER, onOver);
     return () => {
       socket.off(WEREWOLF_EVENTS.STATE, onState);
@@ -101,6 +106,7 @@ export function WerewolfGame() {
       socket.off(WEREWOLF_EVENTS.PRIVATE, onPrivate);
       socket.off(WEREWOLF_EVENTS.HOST, onHost);
       socket.off(WEREWOLF_EVENTS.SPEECH, onSpeech);
+      socket.off(WEREWOLF_EVENTS.FX, onFx);
       socket.off(WEREWOLF_EVENTS.GAME_OVER, onOver);
     };
   }, [gameId]);
@@ -108,6 +114,14 @@ export function WerewolfGame() {
   useEffect(() => {
     if (state && state.phase !== 'night' && prompt?.action !== 'HUNTER_SHOT') setPrompt(null);
   }, [state?.phase]);
+
+  // 单麦：仅在自己发言轮自动开麦，其余时刻自动闭麦。
+  useEffect(() => {
+    const h = audioRef.current;
+    if (!h) return;
+    void h.setMicEnabled(myTurn);
+    setMicOn(myTurn);
+  }, [myTurn]);
 
   function scrollFeed() { requestAnimationFrame(() => feedRef.current?.scrollToEnd({ animated: true })); }
 
@@ -119,7 +133,8 @@ export function WerewolfGame() {
       if (!id) { const res = await api.wolfCreate(boardKey, lang); id = res.gameId; mediaToken = res.token; }
       else { const res = await api.wolfJoin(id, lang); mediaToken = res.token; }
       setGameId(id);
-      connectRoomAudio(mediaToken).then((h) => { audioRef.current = h; }).catch(() => {});
+      // 进房静音连接（单麦：只在发言轮开麦）
+      connectRoomAudio(mediaToken, { startMuted: true }).then((h) => { audioRef.current = h; setVoiceReady(!!h); }).catch(() => {});
     } catch (e) { setError(e instanceof Error ? e.message : '进入失败'); }
     finally { setBusy(false); }
   }
@@ -130,16 +145,21 @@ export function WerewolfGame() {
   const castVote = async (seatNo: number | null) => { if (gameId) try { await api.wolfVote(gameId, seatNo); } catch { /* ignore */ } };
   const act = async (body: { action: WolfPrivatePayload['action']; targetSeat?: number; save?: boolean; poisonSeat?: number }) => {
     if (!gameId || !body.action) return;
-    // 本地播放夜间技能特效
-    const fxMap: Record<string, NightFxType> = { WOLF_KILL: 'wolf', SEER_CHECK: 'seer', HUNTER_SHOT: 'hunter' };
-    if (body.action === 'WITCH') { if (body.save) triggerFx('heal'); else if (body.poisonSeat !== undefined) triggerFx('poison'); }
-    else if (fxMap[body.action]) triggerFx(fxMap[body.action]);
+    // 特效由后端按可见性下发（WEREWOLF_EVENTS.FX）→ 全房同步、不泄密。此处不本地触发。
     try { await api.wolfNightAction(gameId, { action: body.action, targetSeat: body.targetSeat, save: body.save, poisonSeat: body.poisonSeat }); setPrompt(null); } catch { /* ignore */ }
+  };
+  const toggleMic = async () => {
+    const h = audioRef.current;
+    if (!h || !myTurn) return;
+    const next = !micOn;
+    await h.setMicEnabled(next);
+    setMicOn(next);
   };
   const leave = async () => {
     audioRef.current?.disconnect(); audioRef.current = null;
     if (gameId) { try { await api.wolfLeave(gameId); } catch { /* ignore */ } }
     setGameId(null); setState(null); setRole(null); setHostLines([]); setSpeeches([]); setNotices([]); setOver(null); setPrompt(null);
+    setVoiceReady(false); setMicOn(false);
   };
 
   const seedOf = (seatNo: number, userId: string | null) => userId ?? `${gameId}-seat-${seatNo}`;
@@ -179,6 +199,9 @@ export function WerewolfGame() {
         <Btn label="离开" variant="ghost" onPress={leave} />
       </View>
       <Text selectable style={s.idLine}>对局号 {gameId.slice(0, 8)}…{state?.containsAI ? ' · 含 AI 玩家' : ''}</Text>
+      <Text style={s.voiceLine}>
+        {voiceReady ? (myTurn ? (micOn ? '🎙 麦克风开启（轮到你发言）' : '🔇 麦克风已静音') : '🔈 语音已接入 · 轮到你时自动开麦') : '💬 打字模式（真实语音需配置 LiveKit）'}
+      </Text>
 
       {/* 座位网格（lip-sync 头像 + 发言高亮 + 出局去色） */}
       <View style={s.seatGrid}>
@@ -262,7 +285,8 @@ export function WerewolfGame() {
       {/* 发言输入 */}
       {myTurn && (
         <View style={s.sendRow}>
-          <TextInput value={speakText} onChangeText={setSpeakText} placeholder={`轮到你发言（${lang}）…`} placeholderTextColor="rgba(255,255,255,0.4)" style={[s.input, { flex: 1, marginBottom: 0 }]} onSubmitEditing={sendSpeak} />
+          {voiceReady && <Btn label={micOn ? '🎙' : '🔇'} variant={micOn ? 'accent' : 'ghost'} onPress={toggleMic} />}
+          <TextInput value={speakText} onChangeText={setSpeakText} placeholder={voiceReady ? `说话或打字（${lang}）…` : `轮到你发言（${lang}）…`} placeholderTextColor="rgba(255,255,255,0.4)" style={[s.input, { flex: 1, marginBottom: 0 }]} onSubmitEditing={sendSpeak} />
           <Btn label="发言" variant="primary" onPress={sendSpeak} />
           <Btn label="过麦" variant="ghost" onPress={pass} />
         </View>
@@ -312,7 +336,8 @@ const s = StyleSheet.create({
   hint: { color: 'rgba(255,255,255,0.55)', fontSize: 12, marginTop: 16, lineHeight: 18 },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 44 },
   phase: { color: '#fff', fontSize: 18, fontWeight: '900' },
-  idLine: { color: 'rgba(255,255,255,0.5)', fontSize: 12, paddingHorizontal: 16, marginBottom: 4 },
+  idLine: { color: 'rgba(255,255,255,0.5)', fontSize: 12, paddingHorizontal: 16 },
+  voiceLine: { color: wolf.gold, fontSize: 12, paddingHorizontal: 16, marginBottom: 4 },
   seatGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingHorizontal: 16, paddingVertical: 8, justifyContent: 'center' },
   seat: { alignItems: 'center', width: 60, gap: 2 },
   seatName: { color: '#fff', fontSize: 11, fontWeight: '700' },

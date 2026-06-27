@@ -10,8 +10,17 @@ export const WEREWOLF_EVENTS = {
   PRIVATE: 'wolf.private', // 私密：夜间行动提示 / 查验结果 / 个人通知（仅本人，已本地化）
   HOST: 'wolf.host', // AI 主持旁白（按接收者母语本地化）
   SPEECH: 'wolf.speech', // 发言字幕（发言者母语→接收者母语，身份盲翻译）
+  FX: 'wolf.fx', // 夜间技能特效（后端按可见性下发：狼→狼队、预言家→本人、女巫→本人、猎人→全场）
   GAME_OVER: 'wolf.game_over', // 结算 + 全角色/AI 揭示
 } as const;
+
+// 夜间特效类型（与前端 NightFx 对应）。后端只发给"有权看到"的人，保证不泄密。
+export type WolfFxType = 'wolf' | 'heal' | 'seer' | 'poison' | 'hunter';
+export interface WolfFxPayload {
+  gameId: string;
+  type: WolfFxType;
+  ts: number;
+}
 
 export type WolfRole = 'WOLF' | 'SEER' | 'WITCH' | 'HUNTER' | 'VILLAGER';
 export type WolfCamp = 'WOLF' | 'GOOD';

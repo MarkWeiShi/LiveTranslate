@@ -16,6 +16,8 @@ import {
   type WolfSeatPublic,
   type WolfCreateResponse,
   type WolfJoinResponse,
+  type WolfFxType,
+  type WolfFxPayload,
 } from '@linku/shared';
 import { MEDIA_TRANSPORT, TRANSLATION_ENGINE } from '../config/provider.tokens';
 import type { MediaTransport } from '../adapters/media/media-transport.interface';
@@ -298,6 +300,8 @@ export class WerewolfService {
     }
     await this.waitStep(game, T.WOLF, () => this.allWolvesActed(game, wolves));
     game.night.victimSeat = this.tallyWolfVotes(game, targets);
+    // 狼爪特效仅狼队可见
+    this.emitFx(game, wolves.map((w) => w.userId), 'wolf');
   }
 
   private async stepSeer(game: Game) {
@@ -547,16 +551,19 @@ export class WerewolfService {
         name: target.displayName,
       });
       this.emitter.emitToUser(userId, WEREWOLF_EVENTS.PRIVATE, { gameId, kind: 'seer_result', text } satisfies WolfPrivatePayload);
+      this.emitFx(game, [userId], 'seer'); // 预言家眼特效仅本人可见
       this.finishStep(game);
     } else if (action === 'WITCH') {
       if (seat.role !== 'WITCH') throw new BadRequestException({ code: 'NOT_WITCH' });
       if (body.save && !seat.antidoteUsed && game.night.victimSeat !== null) {
         game.night.witchSave = true;
         seat.antidoteUsed = true;
+        this.emitFx(game, [userId], 'heal'); // 解药光环仅女巫可见
       }
       if (body.poisonSeat !== undefined && !seat.poisonUsed) {
         game.night.witchPoisonSeat = body.poisonSeat;
         seat.poisonUsed = true;
+        this.emitFx(game, [userId], 'poison');
       }
       this.finishStep(game);
     } else if (action === 'HUNTER_SHOT') {
@@ -596,6 +603,7 @@ export class WerewolfService {
     t.alive = false;
     this.broadcastState(game);
     this.hostAll(game, 'hunter_fires', { seat: t.seatNo, name: t.displayName });
+    this.emitFx(game, game.seats.map((s) => s.userId), 'hunter'); // 猎人开枪是公开的，全场可见
     this.notifyDeath(game, t);
   }
 
@@ -717,6 +725,14 @@ export class WerewolfService {
       kind: 'notice',
       text: notice(seat.language, 'you_died'),
     } satisfies WolfPrivatePayload);
+  }
+
+  /** 夜间特效：仅下发给"有权看到"的玩家（不泄密）。 */
+  private emitFx(game: Game, userIds: (string | null)[], type: WolfFxType) {
+    const ids = userIds.filter((id): id is string => !!id);
+    if (!ids.length) return;
+    const payload: WolfFxPayload = { gameId: game.id, type, ts: Date.now() };
+    this.emitter.emitToUsers(ids, WEREWOLF_EVENTS.FX, payload);
   }
 
   private emitToAll(game: Game, event: string, payload: unknown) {

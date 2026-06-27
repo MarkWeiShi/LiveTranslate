@@ -43,6 +43,8 @@ async function main() {
   const overP = safe(waitFor(sa, 'wolf.game_over', { timeout: 90000 }));
   let speechCount = 0; let crossLang = false;
   sa.on('wolf.speech', (p) => { speechCount++; if (p.targetLang === 'zh' && p.originalLang !== 'zh') crossLang = true; });
+  const fxTypes = [];
+  sa.on('wolf.fx', (p) => { fxTypes.push(p.type); });
 
   const create = await req('POST', '/werewolf', { token: aTok, body: { boardKey: 'newbie6', language: 'zh' } });
   const gameId = create.json?.gameId;
@@ -85,6 +87,11 @@ async function main() {
   ok('结算揭示全部 6 个座位（含 AI 标记）', over.v?.reveal?.length === 6 && over.v.reveal.some((r) => r.isAI),
     over.err ?? `n=${over.v?.reveal?.length}`);
   ok('对局期间产生跨语言发言字幕（AI 用各自母语→翻成 zh）', speechCount > 0 && crossLang, `speeches=${speechCount} cross=${crossLang}`);
+
+  // 夜间特效按可见性下发：本人若有夜间技能（狼/预言家/女巫）应至少收到一次 wolf.fx
+  const myRole = role.v?.role;
+  const expectFx = ['WOLF', 'SEER', 'WITCH'].includes(myRole);
+  ok('夜间特效按可见性下发（有夜间技能即收到 wolf.fx）', !expectFx || fxTypes.length > 0, `role=${myRole} fx=[${fxTypes.join(',')}]`);
 
   sa.close();
   console.log(`\n=== ${pass} passed, ${fail} failed ===`);
