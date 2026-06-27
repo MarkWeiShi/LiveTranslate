@@ -22,6 +22,7 @@ import { LipSyncAvatar } from '@/components/werewolf/LipSyncAvatar';
 import { RoleRevealCard } from '@/components/werewolf/RoleRevealCard';
 import { NightFx, type NightFxState, type NightFxType } from '@/components/werewolf/NightFx';
 import { TypewriterText } from '@/components/werewolf/TypewriterText';
+import { useSpeechRecognition } from '@/game/useSpeechRecognition';
 
 const LANGS = [
   { code: 'zh', label: '中文 🇨🇳' },
@@ -57,6 +58,7 @@ export function WerewolfGame() {
   const [fx, setFx] = useState<NightFxState | null>(null);
   const [voiceReady, setVoiceReady] = useState(false);
   const [micOn, setMicOn] = useState(false);
+  const [interim, setInterim] = useState('');
   const fxId = useRef(0);
   const audioRef = useRef<RoomAudioHandle | null>(null);
   const feedRef = useRef<ScrollView>(null);
@@ -115,13 +117,21 @@ export function WerewolfGame() {
     if (state && state.phase !== 'night' && prompt?.action !== 'HUNTER_SHOT') setPrompt(null);
   }, [state?.phase]);
 
-  // 单麦：仅在自己发言轮自动开麦，其余时刻自动闭麦。
+  // 单麦：仅在自己发言轮自动开麦，其余时刻自动闭麦（LiveKit 推流 + STT 听写都随之开关）。
   useEffect(() => {
-    const h = audioRef.current;
-    if (!h) return;
-    void h.setMicEnabled(myTurn);
     setMicOn(myTurn);
+    const h = audioRef.current;
+    if (h) void h.setMicEnabled(myTurn);
+    if (!myTurn) setInterim('');
   }, [myTurn]);
+
+  // STT：轮到自己且开麦时，把语音识别成母语文本 → wolfSpeak（后端翻成各听者母语）。
+  const { supported: sttSupported } = useSpeechRecognition({
+    lang,
+    active: myTurn && micOn,
+    onInterim: setInterim,
+    onFinal: (t) => { setInterim(''); if (gameId) api.wolfSpeak(gameId, t).catch(() => { /* ignore */ }); },
+  });
 
   function scrollFeed() { requestAnimationFrame(() => feedRef.current?.scrollToEnd({ animated: true })); }
 
@@ -149,17 +159,18 @@ export function WerewolfGame() {
     try { await api.wolfNightAction(gameId, { action: body.action, targetSeat: body.targetSeat, save: body.save, poisonSeat: body.poisonSeat }); setPrompt(null); } catch { /* ignore */ }
   };
   const toggleMic = async () => {
-    const h = audioRef.current;
-    if (!h || !myTurn) return;
+    if (!myTurn) return;
     const next = !micOn;
-    await h.setMicEnabled(next);
     setMicOn(next);
+    if (!next) setInterim('');
+    const h = audioRef.current;
+    if (h) await h.setMicEnabled(next); // 无 LiveKit 时仅切 STT 听写
   };
   const leave = async () => {
     audioRef.current?.disconnect(); audioRef.current = null;
     if (gameId) { try { await api.wolfLeave(gameId); } catch { /* ignore */ } }
     setGameId(null); setState(null); setRole(null); setHostLines([]); setSpeeches([]); setNotices([]); setOver(null); setPrompt(null);
-    setVoiceReady(false); setMicOn(false);
+    setVoiceReady(false); setMicOn(false); setInterim('');
   };
 
   const seedOf = (seatNo: number, userId: string | null) => userId ?? `${gameId}-seat-${seatNo}`;
@@ -200,7 +211,9 @@ export function WerewolfGame() {
       </View>
       <Text selectable style={s.idLine}>对局号 {gameId.slice(0, 8)}…{state?.containsAI ? ' · 含 AI 玩家' : ''}</Text>
       <Text style={s.voiceLine}>
-        {voiceReady ? (myTurn ? (micOn ? '🎙 麦克风开启（轮到你发言）' : '🔇 麦克风已静音') : '🔈 语音已接入 · 轮到你时自动开麦') : '💬 打字模式（真实语音需配置 LiveKit）'}
+        {voiceReady
+          ? (myTurn ? (micOn ? '🎙 麦克风开启 · 说话自动转字幕' : '🔇 已静音') : '🔈 语音已接入 · 轮到你自动开麦')
+          : (sttSupported ? '🎤 语音听写可用 · 轮到你说话自动转字幕' : '💬 打字模式（浏览器不支持语音识别）')}
       </Text>
 
       {/* 座位网格（lip-sync 头像 + 发言高亮 + 出局去色） */}
@@ -283,10 +296,13 @@ export function WerewolfGame() {
       </ScrollView>
 
       {/* 发言输入 */}
+      {myTurn && interim.length > 0 && (
+        <Text style={s.interim} numberOfLines={2}>🎤 {interim}…</Text>
+      )}
       {myTurn && (
         <View style={s.sendRow}>
-          {voiceReady && <Btn label={micOn ? '🎙' : '🔇'} variant={micOn ? 'accent' : 'ghost'} onPress={toggleMic} />}
-          <TextInput value={speakText} onChangeText={setSpeakText} placeholder={voiceReady ? `说话或打字（${lang}）…` : `轮到你发言（${lang}）…`} placeholderTextColor="rgba(255,255,255,0.4)" style={[s.input, { flex: 1, marginBottom: 0 }]} onSubmitEditing={sendSpeak} />
+          {(voiceReady || sttSupported) && <Btn label={micOn ? '🎙' : '🔇'} variant={micOn ? 'accent' : 'ghost'} onPress={toggleMic} />}
+          <TextInput value={speakText} onChangeText={setSpeakText} placeholder={(voiceReady || sttSupported) ? `说话或打字（${lang}）…` : `轮到你发言（${lang}）…`} placeholderTextColor="rgba(255,255,255,0.4)" style={[s.input, { flex: 1, marginBottom: 0 }]} onSubmitEditing={sendSpeak} />
           <Btn label="发言" variant="primary" onPress={sendSpeak} />
           <Btn label="过麦" variant="ghost" onPress={pass} />
         </View>
@@ -356,5 +372,6 @@ const s = StyleSheet.create({
   translated: { color: '#fff', fontSize: 17, fontWeight: '700' },
   original: { color: 'rgba(255,255,255,0.5)', fontSize: 12, marginTop: 4 },
   revealLine: { color: '#fff', fontSize: 13 },
+  interim: { color: wolf.gold, fontSize: 13, fontStyle: 'italic', paddingHorizontal: 16, paddingTop: 6 },
   sendRow: { flexDirection: 'row', gap: 8, alignItems: 'center', padding: 16, paddingTop: 8 },
 });
