@@ -37,8 +37,10 @@ jobs:
           EXPO_PUBLIC_API_BASE: ${{ vars.EXPO_PUBLIC_API_BASE }}
           EXPO_PUBLIC_WS_BASE: ${{ vars.EXPO_PUBLIC_WS_BASE }}
         run: npm -w app run export:web
-      - name: SPA fallback + disable Jekyll
+      - name: Inject Telegram Mini App SDK + SPA fallback + disable Jekyll
         run: |
+          # 注入 telegram-web-app.js（让 window.Telegram.WebApp 可用 → ready()/expand() 生效，Mini App 正常全屏）
+          perl -0pi -e 's#</head>#<script src="https://telegram.org/js/telegram-web-app.js"></script></head>#' app/dist/index.html
           # GH Pages 跑 Jekyll 会忽略 _expo 等下划线目录 → 必须 .nojekyll
           touch app/dist/.nojekyll
           # SPA：未知路由回退到入口（动态路由 [id] 等）

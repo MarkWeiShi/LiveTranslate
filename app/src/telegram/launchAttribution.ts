@@ -5,7 +5,13 @@ import { parseUtmParams, type AttributionBody } from '@linku/shared';
 //  1) Telegram Mini App：window.Telegram.WebApp.initData 或 URL hash 的 tgWebAppData（可服务端校验）
 //  2) 外链 UTM：x / messenger / instagram 等投放链接 ?utm_source=x&utm_campaign=...&ref=inv42
 // 用 globalThis 访问，避免依赖 DOM lib（RN 原生无 window/location，安全降级）。
-type TgWebApp = { initData?: string; ready?: () => void };
+type TgWebApp = { initData?: string; ready?: () => void; expand?: () => void };
+
+/** 通知 Telegram 容器：H5 已就绪并请求全屏展开（有 telegram-web-app.js 时生效）。 */
+export function initTelegramViewport(): void {
+  const wa = (globalThis as unknown as { Telegram?: { WebApp?: TgWebApp } }).Telegram?.WebApp;
+  try { wa?.ready?.(); wa?.expand?.(); } catch { /* 非 Telegram 环境忽略 */ }
+}
 type GlobalLike = {
   Telegram?: { WebApp?: TgWebApp };
   location?: { hash?: string; search?: string };

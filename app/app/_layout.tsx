@@ -7,7 +7,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useAuthStore } from '@/stores/authStore';
 import { RealtimeBridge } from '@/components/RealtimeBridge';
 import { IncomingCallModal } from '@/components/IncomingCallModal';
-import { reportTelegramLaunch, getTelegramInitData } from '@/telegram/launchAttribution';
+import { reportTelegramLaunch, getTelegramInitData, initTelegramViewport } from '@/telegram/launchAttribution';
 import { colors } from '@/theme';
 
 const queryClient = new QueryClient({
@@ -42,8 +42,9 @@ export default function RootLayout() {
     void hydrate();
   }, [hydrate]);
 
-  // 启动归因（非 Telegram 环境无操作）
+  // Telegram 容器：ready()+expand() 全屏；并上报启动归因（非 Telegram 环境无操作）
   useEffect(() => {
+    initTelegramViewport();
     void reportTelegramLaunch();
   }, []);
 
