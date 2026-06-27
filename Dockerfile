@@ -12,6 +12,7 @@ COPY package.json package-lock.json ./
 COPY packages/shared/package.json packages/shared/package.json
 COPY backend/package.json backend/package.json
 COPY app/package.json app/package.json
+COPY tsconfig.base.json ./
 RUN npm install -w backend --no-audit --no-fund
 
 # 2) 源码 + Prisma client
