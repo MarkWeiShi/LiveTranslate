@@ -14,12 +14,18 @@ function g(): GlobalLike {
   return globalThis as unknown as GlobalLike;
 }
 
-function readLaunch(): AttributionBody | undefined {
-  // 1) Telegram
+/** 当前是否在 Telegram Mini App 环境并拿到 initData（供自动登录用）。 */
+export function getTelegramInitData(): string | undefined {
   const fromSdk = g().Telegram?.WebApp?.initData;
+  if (fromSdk) return fromSdk;
   const hash = g().location?.hash ?? '';
   const tgFromHash = hash.length > 1 ? new URLSearchParams(hash.slice(1)).get('tgWebAppData') : null;
-  const initData = fromSdk || tgFromHash || undefined;
+  return tgFromHash || undefined;
+}
+
+function readLaunch(): AttributionBody | undefined {
+  // 1) Telegram
+  const initData = getTelegramInitData();
   if (initData) return { tgWebAppData: initData };
 
   // 2) UTM 外链

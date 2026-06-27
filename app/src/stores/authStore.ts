@@ -31,6 +31,7 @@ interface AuthState {
   isNewUser: boolean;
   hydrated: boolean;
   login: (mockUserId: string) => Promise<void>;
+  loginTelegram: (tgWebAppData: string) => Promise<void>;
   hydrate: () => Promise<void>;
   refreshMe: () => Promise<void>;
   logout: () => void;
@@ -45,6 +46,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   login: async (mockUserId) => {
     const res = await api.loginMock(mockUserId);
+    setAuthToken(res.token);
+    setStored(res.token);
+    connectWs(res.token);
+    startHeartbeat();
+    set({ token: res.token, user: res.user, isNewUser: res.isNewUser });
+    await get().refreshMe();
+  },
+
+  loginTelegram: async (tgWebAppData) => {
+    const res = await api.loginTelegram(tgWebAppData);
     setAuthToken(res.token);
     setStored(res.token);
     connectWs(res.token);

@@ -34,6 +34,15 @@ async function main() {
   const bad = await post({ tgWebAppData: tampered.toString() });
   ok('real-mode tampered initData → 400 rejected', bad.status === 400 && bad.json?.code === 'BAD_TELEGRAM_INITDATA', `status=${bad.status} code=${bad.json?.code}`);
 
+  // Telegram 自动登录（真实校验）
+  const authReq = (body) => fetch(BASE + '/auth/telegram', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  }).then(async (r) => ({ status: r.status, json: await r.json().catch(() => null) }));
+  const authGood = await authReq({ tgWebAppData: sign(fields) });
+  ok('real-mode /auth/telegram 合法 → 登录 token', authGood.status < 300 && !!authGood.json?.token, `status=${authGood.status}`);
+  const authBad = await authReq({ tgWebAppData: tampered.toString() });
+  ok('real-mode /auth/telegram 篡改 → 401', authBad.status === 401, `status=${authBad.status}`);
+
   console.log(`\n=== ${pass} passed, ${fail} failed ===`);
   process.exitCode = fail ? 1 : 0;
 }

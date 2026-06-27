@@ -147,6 +147,11 @@ async function main() {
   const funGuard = await fetch(BASE + '/internal/attribution/funnel'); // no token
   ok('funnel internal is agent-token guarded (401)', funGuard.status === 401);
 
+  // ---- M10: Telegram 自动登录（mock 模式不校验 hash）----
+  const tgu = encodeURIComponent(JSON.stringify({ id: 700700, username: 'tg_login', language_code: 'zh' }));
+  const tgLogin = await req('POST', '/auth/telegram', { body: { tgWebAppData: `user=${tgu}&auth_date=1719300000&hash=mock` } });
+  ok('Telegram 自动登录 → token + 用户(母语 zh)', tgLogin.status < 300 && !!tgLogin.json?.token && tgLogin.json?.user?.nativeLanguage === 'zh', `lang=${tgLogin.json?.user?.nativeLanguage}`);
+
   console.log(`\n=== ${pass} passed, ${fail} failed ===`);
   process.exitCode = fail ? 1 : 0;
 }

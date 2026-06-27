@@ -34,6 +34,8 @@ function qs(q: Record<string, unknown>): string {
 export const api = {
   loginMock: (mockUserId: string) =>
     apiFetch<LoginResponse>('POST', '/auth/hellotalk/callback', { mockUserId }),
+  loginTelegram: (tgWebAppData: string) =>
+    apiFetch<LoginResponse>('POST', '/auth/telegram', { tgWebAppData }),
   reportAttribution: (b: AttributionBody) =>
     apiFetch<AttributionDto>('POST', '/attribution', b),
   reportFunnelEvent: (b: FunnelEventBody) =>

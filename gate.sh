@@ -25,7 +25,7 @@ trap 'kill $BPID 2>/dev/null || true' EXIT
 until grep -q "listening on http://localhost:3000" /tmp/lt-backend.log 2>/dev/null; do
   kill -0 "$BPID" 2>/dev/null || { echo "BACKEND DIED"; cat /tmp/lt-backend.log; exit 1; }
 done
-echo "[6/7] 验收冒烟（59 断言：auth/discovery/safety + call/xlate/pay/gift/history + telegram 归因 + 多渠道/漏斗 + 巴别塔语聊房）"
+echo "[6/7] 验收冒烟（60 断言：auth/discovery/safety + call/xlate/pay/gift/history + telegram 归因 + 多渠道/漏斗 + 巴别塔语聊房）"
 node scripts/smoke.mjs
 node scripts/reset-dev.mjs >/dev/null
 node scripts/smoke-rt.mjs
@@ -47,4 +47,4 @@ TELEGRAM_BOT_TOKEN="$GATE_TG_TOKEN" node scripts/smoke-tg.mjs
 kill "$TGPID" 2>/dev/null || true; trap - EXIT
 cd "$ROOT"
 echo "[7/7] H5 生产构建：expo export -p web"; npm -w app run export:web >/dev/null
-echo "GATE OK — 21 单元（13 shared + 8 backend: 5 Telegram + 3 LiveKit）+ 59 mock 冒烟（含语聊房+弹幕/上麦/传话）+ 2 真实模式冒烟（自签）+ typecheck + H5 构建。真实 Gemini/LiveKit/HelloTalk/RevenueCat/Telegram Bot 凭据与对外上线属 human checkpoint（见 TELEGRAM-SETUP.md / LIVEKIT-SETUP.md）。"
+echo "GATE OK — 21 单元（13 shared + 8 backend: 5 Telegram + 3 LiveKit）+ 60 mock 冒烟（含语聊房+弹幕/上麦/传话）+ 4 真实模式冒烟（自签，含 Telegram 登录）+ typecheck + H5 构建。真实 Gemini/LiveKit/HelloTalk/RevenueCat/Telegram Bot 凭据与对外上线属 human checkpoint（见 TELEGRAM-SETUP.md / LIVEKIT-SETUP.md）。"
