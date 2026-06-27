@@ -1,0 +1,58 @@
+name: Deploy H5 to GitHub Pages
+
+# 把 LinkU 的 Expo Web (H5) 静态导出部署到 GitHub Pages（HTTPS，满足 Telegram Mini App 要求）。
+# 前提（在仓库 Settings 配置一次）：
+#   - Settings → Pages → Build and deployment → Source = "GitHub Actions"
+#   - Settings → Secrets and variables → Actions → Variables：
+#       EXPO_PUBLIC_API_BASE = https://你的后端域名         （必填：H5 调后端归因/登录等）
+#       EXPO_PUBLIC_WS_BASE  = https://你的后端域名         （实时通话信令；没有可暂留空）
+#       EXPO_PUBLIC_BASE_URL = /LiveTranslate               （项目页子路径；用户页/自定义域名根路径填 / ）
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install deps (workspaces)
+        run: npm install --no-audit --no-fund
+      - name: Export Expo Web (H5)
+        env:
+          EXPO_PUBLIC_BASE_URL: ${{ vars.EXPO_PUBLIC_BASE_URL || '/LiveTranslate' }}
+          EXPO_PUBLIC_API_BASE: ${{ vars.EXPO_PUBLIC_API_BASE }}
+          EXPO_PUBLIC_WS_BASE: ${{ vars.EXPO_PUBLIC_WS_BASE }}
+        run: npm -w app run export:web
+      - name: SPA fallback + disable Jekyll
+        run: |
+          # GH Pages 跑 Jekyll 会忽略 _expo 等下划线目录 → 必须 .nojekyll
+          touch app/dist/.nojekyll
+          # SPA：未知路由回退到入口（动态路由 [id] 等）
+          cp app/dist/index.html app/dist/404.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: app/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
