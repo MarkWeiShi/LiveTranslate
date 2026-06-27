@@ -1,49 +1,28 @@
-import { useEffect, useRef } from 'react';
-import { Animated, StyleSheet, View, Easing } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { MotiView } from 'moti';
 import { wolf } from '@/theme';
 
-// 昼夜底色交叉淡入 + 血红呼吸光晕（移植自 wolfcha GameBackground，用 RN Animated）。
+// 昼夜底色交叉淡入 + 血红呼吸光晕（移植自 wolfcha GameBackground，用 Moti/Reanimated）。
 // isNight=true → 暗夜血色；false → 羊皮纸白天。1.5s 交叉淡入。
 export function WolfBackground({ isNight }: { isNight: boolean }) {
-  const nightOp = useRef(new Animated.Value(isNight ? 1 : 0)).current;
-  const glow = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.timing(nightOp, {
-      toValue: isNight ? 1 : 0,
-      duration: 1500,
-      easing: Easing.inOut(Easing.ease),
-      useNativeDriver: true,
-    }).start();
-  }, [isNight, nightOp]);
-
-  // 血红光晕呼吸（仅夜晚可见）：10s 循环 scale 脉动
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(glow, { toValue: 1, duration: 5000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(glow, { toValue: 0, duration: 5000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [glow]);
-
-  const glowScale = glow.interpolate({ inputRange: [0, 1], outputRange: [1, 1.12] });
-  const glowOpacity = Animated.multiply(nightOp, glow.interpolate({ inputRange: [0, 1], outputRange: [0.25, 0.5] }));
-
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
       {/* 白天底 */}
       <View style={[StyleSheet.absoluteFill, { backgroundColor: wolf.dayMain }]} />
       {/* 暗夜底（淡入覆盖白天） */}
-      <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: wolf.dark, opacity: nightOp }]} />
-      {/* 血红呼吸光晕 */}
-      <Animated.View
-        style={[
-          styles.glow,
-          { opacity: glowOpacity, transform: [{ scale: glowScale }] },
-        ]}
+      <MotiView
+        style={[StyleSheet.absoluteFill, { backgroundColor: wolf.dark }]}
+        animate={{ opacity: isNight ? 1 : 0 }}
+        transition={{ type: 'timing', duration: 1500 }}
+      />
+      {/* 血红呼吸光晕（夜晚可见，10s 脉动） */}
+      <MotiView
+        style={styles.glow}
+        animate={{ opacity: isNight ? 0.45 : 0, scale: isNight ? 1.12 : 1 }}
+        transition={{
+          opacity: { type: 'timing', duration: 1500 },
+          scale: { type: 'timing', duration: 5000, loop: true, repeatReverse: true },
+        }}
       />
     </View>
   );
@@ -58,7 +37,6 @@ const styles = StyleSheet.create({
     height: '50%',
     borderRadius: 9999,
     backgroundColor: wolf.blood,
-    // web 模糊；原生忽略
-    filter: 'blur(90px)' as unknown as undefined,
+    filter: 'blur(90px)' as unknown as undefined, // web 模糊；原生忽略
   },
 });

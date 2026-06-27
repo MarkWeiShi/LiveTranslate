@@ -1,51 +1,52 @@
-import { useEffect, useRef } from 'react';
-import { Animated, Easing, StyleSheet, Text, View, Pressable } from 'react-native';
+import { useEffect, useState } from 'react';
+import { StyleSheet, Text, View, Pressable } from 'react-native';
+import { MotiView } from 'moti';
 import type { WolfRolePayload } from '@linku/shared';
 import { wolf } from '@/theme';
 
-// 发牌翻牌 + 角色卡入场（移植自 wolfcha RoleRevealOverlay，用 RN Animated）。
+// 发牌翻牌 + 角色卡入场（移植自 wolfcha RoleRevealOverlay，用 Moti/Reanimated）。
 // 进场：遮罩淡入 + 卡片弹簧上浮；650ms 后翻牌（rotateY 180→0）。
 const ROLE_EMOJI: Record<string, string> = {
   WOLF: '🐺', SEER: '🔮', WITCH: '🧪', HUNTER: '🔫', VILLAGER: '🧑‍🌾',
 };
 
 export function RoleRevealCard({ role, onContinue }: { role: WolfRolePayload; onContinue: () => void }) {
-  const fade = useRef(new Animated.Value(0)).current;
-  const rise = useRef(new Animated.Value(0)).current;
-  const flip = useRef(new Animated.Value(0)).current; // 0=背面(180°) 1=正面(0°)
-
+  const [flipped, setFlipped] = useState(false);
   useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fade, { toValue: 1, duration: 250, useNativeDriver: true }),
-      Animated.spring(rise, { toValue: 1, stiffness: 420, damping: 34, mass: 1, useNativeDriver: true }),
-    ]).start();
-    const t = setTimeout(() => {
-      Animated.timing(flip, { toValue: 1, duration: 700, easing: Easing.inOut(Easing.ease), useNativeDriver: true }).start();
-    }, 650);
+    const t = setTimeout(() => setFlipped(true), 650);
     return () => clearTimeout(t);
-  }, [fade, rise, flip]);
+  }, []);
 
   const accent = wolf.role[role.role] ?? wolf.gold;
-  const translateY = rise.interpolate({ inputRange: [0, 1], outputRange: [16, 0] });
-  const frontSpin = flip.interpolate({ inputRange: [0, 1], outputRange: ['180deg', '360deg'] });
-  const backSpin = flip.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] });
-  const frontOpacity = flip.interpolate({ inputRange: [0, 0.5, 0.5, 1], outputRange: [0, 0, 1, 1] });
-  const backOpacity = flip.interpolate({ inputRange: [0, 0.5, 0.5, 1], outputRange: [1, 1, 0, 0] });
 
   return (
-    <Animated.View style={[StyleSheet.absoluteFill, styles.overlay, { opacity: fade }]}>
-      <Animated.View style={[styles.cardWrap, { transform: [{ translateY }] }]}>
+    <MotiView
+      style={[StyleSheet.absoluteFill, styles.overlay]}
+      from={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ type: 'timing', duration: 250 }}
+    >
+      <MotiView
+        from={{ opacity: 0, translateY: 16, scale: 0.98 }}
+        animate={{ opacity: 1, translateY: 0, scale: 1 }}
+        transition={{ type: 'spring', stiffness: 420, damping: 34 }}
+        style={styles.persp}
+      >
         {/* 背面（发牌中） */}
-        <Animated.View
-          style={[styles.card, styles.cardBack, { opacity: backOpacity, transform: [{ perspective: 1200 }, { rotateY: backSpin }] }]}
+        <MotiView
+          style={[styles.card, styles.cardBack]}
+          animate={{ rotateY: flipped ? '180deg' : '0deg' }}
+          transition={{ type: 'timing', duration: 700 }}
         >
           <Text style={styles.dealHint}>正在发牌…</Text>
           <Text style={styles.dealMark}>🂠</Text>
-          <Text style={styles.dealHint}>身份将仅你可见</Text>
-        </Animated.View>
+          <Text style={styles.dealHint}>身份仅你可见</Text>
+        </MotiView>
         {/* 正面（角色） */}
-        <Animated.View
-          style={[styles.card, { borderColor: accent, opacity: frontOpacity, transform: [{ perspective: 1200 }, { rotateY: frontSpin }] }]}
+        <MotiView
+          style={[styles.card, styles.cardFront, { borderColor: accent }]}
+          animate={{ rotateY: flipped ? '360deg' : '180deg' }}
+          transition={{ type: 'timing', duration: 700 }}
         >
           <Text style={styles.seat}>{role.seatNo} 号 · {role.camp === 'WOLF' ? '狼人阵营' : '好人阵营'}</Text>
           <Text style={styles.emoji}>{ROLE_EMOJI[role.role] ?? '❔'}</Text>
@@ -57,20 +58,21 @@ export function RoleRevealCard({ role, onContinue }: { role: WolfRolePayload; on
           <Pressable onPress={onContinue} style={[styles.btn, { backgroundColor: accent }]}>
             <Text style={styles.btnText}>知道了，开始</Text>
           </Pressable>
-        </Animated.View>
-      </Animated.View>
-    </Animated.View>
+        </MotiView>
+      </MotiView>
+    </MotiView>
   );
 }
 
 const styles = StyleSheet.create({
   overlay: { backgroundColor: 'rgba(0,0,0,0.82)', alignItems: 'center', justifyContent: 'center', zIndex: 60 },
-  cardWrap: { width: 300 },
+  persp: { width: 300, height: 380, transform: [{ perspective: 1200 }] },
   card: {
     position: 'absolute', width: 300, minHeight: 360, borderRadius: 24, padding: 24,
     backgroundColor: wolf.darkSecondary, borderWidth: 2, alignItems: 'center', gap: 10,
     backfaceVisibility: 'hidden',
   },
+  cardFront: {},
   cardBack: { borderColor: wolf.gold, justifyContent: 'center' },
   dealHint: { color: 'rgba(255,255,255,0.6)', fontSize: 13 },
   dealMark: { fontSize: 72, color: wolf.gold, marginVertical: 16 },

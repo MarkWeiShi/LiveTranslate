@@ -7,12 +7,13 @@
 
 ---
 
-## 0. 实现策略与一处关键取舍（务必先读）
+## 0. 实现策略（已更新：Moti 已正式接入）
 
-- wolfcha 用 **Framer Motion**（web-only）。我们是 **Expo/RN-web**，**首选目标 = Moti（底层 Reanimated）**，因为它跨 web/native 且 API 与 Framer Motion 几乎一一对应。
-- **本次落地实现用 React Native 内置 `Animated`**（零新依赖、零 babel 改动、**保证 H5 export 与 gate 绿灯**、Telegram 现网不挂）。RN `Animated` 正是 Reanimated 的"安全子集"，本 SPEC 的动效全部用它实现。
-- **下表第 4 节同时给出 Moti/Reanimated 目标写法**——想升级到弹簧/更顺滑动效时，按"迁移指南"（§6）加 `moti` + `react-native-reanimated` 即可平移，组件结构不变。
-- **lip-sync 头像不依赖任何动效库**：本质是定时切换 DiceBear 图片 URL（`setInterval` + `<Image>`），跨端零风险——这是性价比最高、最像 wolfcha 的一招。
+- wolfcha 用 **Framer Motion**（web-only）。我们是 **Expo/RN-web**，**已接入 Moti（底层 Reanimated 3.16）**，API 与 Framer Motion 几乎一一对应。
+- ✅ **已落地用 Moti**：`WolfBackground`（昼夜淡入 + 血色呼吸 loop）、`RoleRevealCard`（弹簧入场 + rotateY 翻牌）、`NightFx`（狼爪/解药光环/预言家眼/毒雾/猎人爆裂）。
+- 依赖与 babel 已配好（`react-native-reanimated/plugin`）；**已验证 `expo export web` 构建通过**（bundle 因 Reanimated 增至 ~1.9MB，正常）。
+- **lip-sync 头像 / 打字机不依赖动效库**：lip-sync 是定时切 DiceBear URL；打字机是逐字 `setState`——跨端零风险。
+- **第 4 节保留 Framer Motion → Moti → RN Animated 三栏映射**作为对照参考（RN Animated 仍是无依赖回退方案）。
 
 ---
 

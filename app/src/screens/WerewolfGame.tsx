@@ -19,6 +19,8 @@ import { colors, radius, wolf } from '@/theme';
 import { WolfBackground } from '@/components/werewolf/WolfBackground';
 import { LipSyncAvatar } from '@/components/werewolf/LipSyncAvatar';
 import { RoleRevealCard } from '@/components/werewolf/RoleRevealCard';
+import { NightFx, type NightFxState, type NightFxType } from '@/components/werewolf/NightFx';
+import { TypewriterText } from '@/components/werewolf/TypewriterText';
 
 const LANGS = [
   { code: 'zh', label: '中文 🇨🇳' },
@@ -51,8 +53,16 @@ export function WerewolfGame() {
   const [speakText, setSpeakText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fx, setFx] = useState<NightFxState | null>(null);
+  const fxId = useRef(0);
   const audioRef = useRef<RoomAudioHandle | null>(null);
   const feedRef = useRef<ScrollView>(null);
+
+  function triggerFx(type: NightFxType) {
+    fxId.current += 1;
+    setFx({ type, id: fxId.current });
+    setTimeout(() => setFx((cur) => (cur && cur.id === fxId.current ? null : cur)), 1800);
+  }
 
   const mySeat = state?.seats.find((s) => s.userId === myId) ?? null;
   const isHost = !!state && !!myId && state.hostUserId === myId;
@@ -120,6 +130,10 @@ export function WerewolfGame() {
   const castVote = async (seatNo: number | null) => { if (gameId) try { await api.wolfVote(gameId, seatNo); } catch { /* ignore */ } };
   const act = async (body: { action: WolfPrivatePayload['action']; targetSeat?: number; save?: boolean; poisonSeat?: number }) => {
     if (!gameId || !body.action) return;
+    // 本地播放夜间技能特效
+    const fxMap: Record<string, NightFxType> = { WOLF_KILL: 'wolf', SEER_CHECK: 'seer', HUNTER_SHOT: 'hunter' };
+    if (body.action === 'WITCH') { if (body.save) triggerFx('heal'); else if (body.poisonSeat !== undefined) triggerFx('poison'); }
+    else if (fxMap[body.action]) triggerFx(fxMap[body.action]);
     try { await api.wolfNightAction(gameId, { action: body.action, targetSeat: body.targetSeat, save: body.save, poisonSeat: body.poisonSeat }); setPrompt(null); } catch { /* ignore */ }
   };
   const leave = async () => {
@@ -158,6 +172,7 @@ export function WerewolfGame() {
   return (
     <View style={s.root}>
       <WolfBackground isNight={!!isNight} />
+      <NightFx fx={fx} />
 
       <View style={s.headerRow}>
         <Text style={s.phase}>{state ? PHASE_LABEL[state.phase] : '…'}{state && state.day > 0 ? ` · 第${state.day}天` : ''}</Text>
@@ -231,13 +246,13 @@ export function WerewolfGame() {
         {hostLines.length === 0 && speeches.length === 0 && (
           <Text style={s.dimCenter}>对局开始后，这里显示主持旁白与跨语言发言字幕。</Text>
         )}
-        {interleave(hostLines, speeches).map((item, i) =>
+        {interleave(hostLines, speeches).map((item) =>
           isHostLine(item) ? (
-            <Text key={`h${i}`} style={s.hostLine}>🎙 {item.text}</Text>
+            <Text key={`h-${item.ts}`} style={s.hostLine}>🎙 {item.text}</Text>
           ) : (
-            <View key={`s${i}`} style={s.bubble}>
+            <View key={`s-${item.ts}-${item.fromSeat}`} style={s.bubble}>
               <Text style={s.from}>{item.fromSeat}号 {item.fromName} · {item.originalLang}→{item.targetLang}</Text>
-              <Text style={s.translated}>{item.translatedText}</Text>
+              <TypewriterText text={item.translatedText} style={s.translated} />
               {item.originalText !== item.translatedText && <Text style={s.original}>{item.originalText}</Text>}
             </View>
           ),
