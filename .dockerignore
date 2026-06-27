@@ -1,0 +1,14 @@
+**/node_modules
+app/dist
+app/.expo
+backend/dist
+**/*.db
+**/*.db-journal
+backend/.env
+app/.env
+.env
+.git
+.github
+**/__shots__
+*.log
+.DS_Store

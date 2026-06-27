@@ -1,0 +1,39 @@
+# Fly.io 部署配置 —— LinkU backend（全 mock，零密钥即可跑）。
+# 首次：fly launch --no-deploy --copy-config（或直接用本文件 fly deploy）；app 名需全局唯一。
+app = "linku-backend"
+primary_region = "hkg" # 香港，靠近国内/亚太；可改 nrt(东京)/sjc(美西) 等
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3000"
+  DATABASE_URL = "file:/data/prod.db" # SQLite 落在挂载卷
+  AUTH_PROVIDER = "mock"
+  MEDIA_PROVIDER = "mock"
+  TRANSLATION_PROVIDER = "mock"
+  PAYMENT_PROVIDER = "mock"
+  PAYMENT_PROVIDER_FALLBACK = "mock"
+  STORE_DRIVER = "memory"
+  ATTRIBUTION_VERIFY = "mock"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+# SQLite 持久卷（单机）。先 `fly volumes create data --size 1 --region hkg`
+[[mounts]]
+  source = "data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb" # ts-node + Nest 需要 >256MB
+
+[deploy]
+  # 仅单机（卷+SQLite 不支持多机并发写）
+  strategy = "immediate"
