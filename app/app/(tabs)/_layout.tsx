@@ -19,7 +19,8 @@ export default function TabsLayout() {
         sceneStyle: { backgroundColor: colors.bg },
       }}
     >
-      <Tabs.Screen name="index" options={{ title: '发现', tabBarIcon: icon('🌍') }} />
+      <Tabs.Screen name="index" options={{ title: '狼人杀', tabBarIcon: icon('🐺'), headerShown: false }} />
+      <Tabs.Screen name="discover" options={{ title: '发现', tabBarIcon: icon('🌍') }} />
       <Tabs.Screen name="friends" options={{ title: '好友', tabBarIcon: icon('💬') }} />
       <Tabs.Screen name="history" options={{ title: '记录', tabBarIcon: icon('🕘') }} />
       <Tabs.Screen name="profile" options={{ title: '我的', tabBarIcon: icon('👤') }} />
