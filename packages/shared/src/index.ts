@@ -6,3 +6,4 @@ export * from './telegram';
 export * from './attribution';
 export * from './room';
 export * from './growth';
+export * from './werewolf';

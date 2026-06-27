@@ -16,6 +16,7 @@ import { GiftsModule } from './gifts/gifts.module';
 import { FriendsModule } from './friends/friends.module';
 import { AttributionModule } from './attribution/attribution.module';
 import { RoomsModule } from './rooms/rooms.module';
+import { WerewolfModule } from './werewolf/werewolf.module';
 import { GrowthModule } from './growth/growth.module';
 
 @Module({
@@ -37,6 +38,7 @@ import { GrowthModule } from './growth/growth.module';
     FriendsModule,
     AttributionModule,
     RoomsModule,
+    WerewolfModule,
     GrowthModule,
   ],
 })

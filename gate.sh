@@ -31,6 +31,8 @@ node scripts/reset-dev.mjs >/dev/null
 node scripts/smoke-rt.mjs
 echo "    └ 巴别塔语聊房（字幕 + 弹幕/上麦/传话/PK）"
 node scripts/smoke-room.mjs
+echo "    └ 跨语言狼人杀（私密角色 + 多语言主持 + 跨语言发言 + AI 兜底跑完一局）"
+node scripts/smoke-werewolf.mjs
 echo "    └ 成长体系（积分/等级 + CP 亲密度 + 家族战）"
 node scripts/smoke-growth.mjs
 kill "$BPID" 2>/dev/null || true; trap - EXIT

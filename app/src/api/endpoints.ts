@@ -4,6 +4,10 @@ import type {
   FunnelEventBody,
   CreateRoomResponse,
   JoinRoomResponse,
+  WolfActionType,
+  WolfCreateResponse,
+  WolfJoinResponse,
+  WolfStatePayload,
   GrowthProfileDto,
   AwardXpResult,
   BondDto,
@@ -59,6 +63,23 @@ export const api = {
   quizStart: (id: string) => apiFetch<{ quizId: string }>('POST', `/rooms/${id}/quiz/start`),
   quizAnswer: (id: string, questionId: string, choice: number) =>
     apiFetch<{ ok: true }>('POST', `/rooms/${id}/quiz/answer`, { questionId, choice }),
+  // 跨语言狼人杀
+  wolfCreate: (boardKey: string, language: string) =>
+    apiFetch<WolfCreateResponse>('POST', '/werewolf', { boardKey, language }),
+  wolfJoin: (id: string, language: string) =>
+    apiFetch<WolfJoinResponse>('POST', `/werewolf/${id}/join`, { language }),
+  wolfStart: (id: string) => apiFetch<{ ok: true }>('POST', `/werewolf/${id}/start`),
+  wolfState: (id: string) => apiFetch<WolfStatePayload>('GET', `/werewolf/${id}`),
+  wolfNightAction: (
+    id: string,
+    body: { action: WolfActionType; targetSeat?: number; save?: boolean; poisonSeat?: number },
+  ) => apiFetch<{ ok: true }>('POST', `/werewolf/${id}/night-action`, body),
+  wolfSpeak: (id: string, text: string) =>
+    apiFetch<{ ok: true }>('POST', `/werewolf/${id}/speak`, { text }),
+  wolfPass: (id: string) => apiFetch<{ ok: true }>('POST', `/werewolf/${id}/pass`),
+  wolfVote: (id: string, targetSeat: number | null) =>
+    apiFetch<{ ok: true }>('POST', `/werewolf/${id}/vote`, { targetSeat }),
+  wolfLeave: (id: string) => apiFetch<void>('POST', `/werewolf/${id}/leave`),
   // 成长体系
   growthMe: () => apiFetch<GrowthProfileDto>('GET', '/growth/me'),
   growthAward: (amount: number, reason?: string) =>

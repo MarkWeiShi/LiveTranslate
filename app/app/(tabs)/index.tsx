@@ -24,6 +24,7 @@ export default function DiscoveryScreen() {
         <Filter label="男" active={gender === 'MALE'} onPress={() => setGender(gender === 'MALE' ? undefined : 'MALE')} />
         <Filter label="仅在线" active={onlineOnly} onPress={() => setOnlineOnly((v) => !v)} />
         <Filter label="🗣 语聊房" onPress={() => router.push('/babel')} />
+        <Filter label="🐺 狼人杀" onPress={() => router.push('/werewolf')} />
         <Filter label="🏆 成长" onPress={() => router.push('/growth')} />
       </View>
 
