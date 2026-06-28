@@ -34,6 +34,7 @@ export interface RoomSeatsPayload {
   roomId: string;
   seats: SeatDto[];
   audienceCount: number;
+  audience: { userId: string; displayName: string }[]; // 听众（未上麦成员）—舞台模式展示头像
   hostId: string | null;
   micMode: MicMode;
 }

@@ -26,6 +26,7 @@ import { ENV } from '@/config/env';
 import { Btn } from '@/components/ui';
 import { colors, radius, wolf } from '@/theme';
 import { MicSeat, type SeatMember } from '@/components/voiceroom/MicSeat';
+import { StageLayout } from '@/components/voiceroom/StageLayout';
 import { avatarUrl } from '@/game/avatar';
 import { GiftPanel } from '@/components/voiceroom/GiftPanel';
 import { GiftFly, type GiftFlyItem, BIG_GIFT_COINS } from '@/components/voiceroom/GiftFly';
@@ -60,6 +61,8 @@ export default function BabelRoomScreen() {
   const [hostId, setHostId] = useState<string | null>(null);
   const [micMode, setMicMode] = useState<'free' | 'approval'>('free');
   const [audienceCount, setAudienceCount] = useState(0);
+  const [audience, setAudience] = useState<{ userId: string; displayName: string }[]>([]);
+  const [layout, setLayout] = useState<'mic' | 'stage'>('mic'); // 房间形态：麦位 / 舞台
   const [micRequests, setMicRequests] = useState<MicRequestEntry[]>([]);
   const [showRequests, setShowRequests] = useState(false);
   const [seatAction, setSeatAction] = useState<SeatDto | null>(null);
@@ -152,7 +155,7 @@ export default function BabelRoomScreen() {
     const onQuizQ = (p: QuizQuestionPayload) => { if (p.roomId === roomId) { setQuizQ(p); setQuizResult(null); setAnswered(false); } };
     const onQuizR = (p: QuizResultPayload) => { if (p.roomId === roomId) { setQuizResult(p); setQuizQ(null); } };
     const onGift = (p: RoomGiftPayload) => { if (p.roomId === roomId) { pushGift(p); if (p.toUserId === myId) refreshWallet(); } };
-    const onSeats = (p: RoomSeatsPayload) => { if (p.roomId === roomId) { setSeats(p.seats); setAudienceCount(p.audienceCount); setHostId(p.hostId); setMicMode(p.micMode); } };
+    const onSeats = (p: RoomSeatsPayload) => { if (p.roomId === roomId) { setSeats(p.seats); setAudienceCount(p.audienceCount); setAudience(p.audience ?? []); setHostId(p.hostId); setMicMode(p.micMode); } };
     const onMicReqs = (p: RoomMicRequestsPayload) => { if (p.roomId === roomId) setMicRequests(p.requests); };
 
     socket.on(ROOM_EVENTS.CAPTION, onCaption);
@@ -259,6 +262,11 @@ export default function BabelRoomScreen() {
         <Text style={s.sub}>BIGO 式麦位语聊房：上麦、送礼、跨语言字幕。各人说母语，看到自己语言的字幕。</Text>
         <Text style={s.label}>我的语言</Text>
         <View style={s.row}>{LANGS.map((l) => <Chip key={l.code} label={l.label} active={lang === l.code} onPress={() => setLang(l.code)} />)}</View>
+        <Text style={s.label}>房间形态</Text>
+        <View style={s.row}>
+          <Chip label="🎙 麦位房" active={layout === 'mic'} onPress={() => setLayout('mic')} />
+          <Chip label="🎭 舞台房（Discord Stage）" active={layout === 'stage'} onPress={() => setLayout('stage')} />
+        </View>
         <Text style={s.label}>房间号（留空＝新建房间）</Text>
         <TextInput value={roomInput} onChangeText={setRoomInput} placeholder="粘贴房间号加入，或留空新建" placeholderTextColor="rgba(255,255,255,0.4)" style={s.input} autoCapitalize="none" />
         {error && <Text style={s.error}>{error}</Text>}
@@ -320,27 +328,41 @@ export default function BabelRoomScreen() {
         </View>
       )}
 
-      {/* 麦位区 */}
-      <View style={s.hostRow}>
-        {hostSeat && (
-          <MicSeat seatNo={0} member={seatMember(hostSeat)} isHost isMe={hostSeat.userId === myId} muted={hostSeat.muted} speaking={isSpeaking(hostSeat.userId)} charm={hostSeat.userId ? charm[hostSeat.userId] ?? 0 : 0} onPress={() => onSeatPress(hostSeat)} />
-        )}
-      </View>
-      <View style={s.seatGrid}>
-        {gridSeats.map((seat) => (
-          <MicSeat
-            key={seat.index}
-            seatNo={seat.index}
-            member={seatMember(seat)}
-            isMe={seat.userId === myId}
-            muted={seat.muted}
-            locked={seat.locked}
-            speaking={isSpeaking(seat.userId)}
-            charm={seat.userId ? charm[seat.userId] ?? 0 : 0}
-            onPress={() => onSeatPress(seat)}
-          />
-        ))}
-      </View>
+      {/* 麦位区 / 舞台区 */}
+      {layout === 'stage' ? (
+        <StageLayout
+          seats={seats}
+          audience={audience}
+          myId={myId}
+          isSpeaking={isSpeaking}
+          charm={charm}
+          onSeatPress={onSeatPress}
+          onAudiencePress={(a) => { setGiftTarget({ userId: a.userId, displayName: a.displayName }); setGiftPanel(true); }}
+        />
+      ) : (
+        <>
+          <View style={s.hostRow}>
+            {hostSeat && (
+              <MicSeat seatNo={0} member={seatMember(hostSeat)} isHost isMe={hostSeat.userId === myId} muted={hostSeat.muted} speaking={isSpeaking(hostSeat.userId)} charm={hostSeat.userId ? charm[hostSeat.userId] ?? 0 : 0} onPress={() => onSeatPress(hostSeat)} />
+            )}
+          </View>
+          <View style={s.seatGrid}>
+            {gridSeats.map((seat) => (
+              <MicSeat
+                key={seat.index}
+                seatNo={seat.index}
+                member={seatMember(seat)}
+                isMe={seat.userId === myId}
+                muted={seat.muted}
+                locked={seat.locked}
+                speaking={isSpeaking(seat.userId)}
+                charm={seat.userId ? charm[seat.userId] ?? 0 : 0}
+                onPress={() => onSeatPress(seat)}
+              />
+            ))}
+          </View>
+        </>
+      )}
 
       {/* 游戏卡（保留传话/PK） */}
       {telTurn && (
@@ -362,8 +384,8 @@ export default function BabelRoomScreen() {
       )}
       {quizResult && (<View style={s.gameCard}><Text style={s.gameTitle}>🏁 {quizResult.winner ? `🥇 ${quizResult.winner.displayName}` : '平局'}</Text><Btn label="知道了" variant="ghost" onPress={() => setQuizResult(null)} /></View>)}
 
-      {/* 公屏消息 */}
-      <ScrollView ref={scrollRef} style={s.feed} contentContainerStyle={{ padding: 10, gap: 6 }}>
+      {/* 公屏消息（舞台模式压缩高度，把空间让给舞台/听众区） */}
+      <ScrollView ref={scrollRef} style={[s.feed, layout === 'stage' && s.feedStage]} contentContainerStyle={{ padding: 10, gap: 6 }}>
         {captions.length === 0 ? (
           <Text style={s.dimCenter}>欢迎来到语聊房 · 发言、送礼、开游戏</Text>
         ) : captions.map((c, i) => (
@@ -505,6 +527,7 @@ const s = StyleSheet.create({
   dim: { color: 'rgba(255,255,255,0.6)', fontSize: 12 },
   dimCenter: { color: 'rgba(255,255,255,0.45)', textAlign: 'center', marginTop: 16 },
   feed: { flex: 1, marginHorizontal: 12, marginTop: 8, backgroundColor: 'rgba(0,0,0,0.25)', borderRadius: radius.md },
+  feedStage: { flex: 0, height: 110 },
   msgName: { color: wolf.gold, fontWeight: '700', fontSize: 11, marginBottom: 1 },
   msgText: { color: 'rgba(255,255,255,0.92)', fontSize: 14, lineHeight: 19 },
   inputRow: { flexDirection: 'row', gap: 6, alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6, flexWrap: 'wrap' },

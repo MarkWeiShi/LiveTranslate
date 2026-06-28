@@ -286,11 +286,15 @@ export class RoomsService {
   }
 
   private broadcastSeats(room: RoomState) {
-    const occupied = room.seats.filter((s) => s.userId).length;
+    const seatedIds = new Set(room.seats.map((s) => s.userId).filter((x): x is string => !!x));
+    const audience = [...room.members.values()]
+      .filter((m) => !seatedIds.has(m.userId))
+      .map((m) => ({ userId: m.userId, displayName: m.displayName }));
     const payload: RoomSeatsPayload = {
       roomId: room.id,
       seats: this.seatDtos(room),
-      audienceCount: Math.max(0, room.members.size - occupied),
+      audienceCount: audience.length,
+      audience,
       hostId: room.hostId,
       micMode: room.micMode,
     };
