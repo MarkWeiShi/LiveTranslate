@@ -1,5 +1,11 @@
 import { IsInt, IsOptional, IsString, MaxLength, Min, MinLength } from 'class-validator';
 
+export class GiftDto {
+  @IsString() @MinLength(1) @MaxLength(40) giftType!: string;
+  @IsInt() @Min(0) coins!: number;
+  @IsOptional() @IsString() toUserId?: string | null;
+}
+
 export class JoinRoomDto {
   @IsOptional() @IsString() language?: string;
 }

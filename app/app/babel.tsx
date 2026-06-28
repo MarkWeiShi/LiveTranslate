@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TextInput, View, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
   ROOM_EVENTS,
@@ -10,6 +10,7 @@ import {
   type RoomMemberJoinedPayload,
   type RoomMemberLeftPayload,
   type RoomQueuePayload,
+  type RoomGiftPayload,
   type TelephoneResultPayload,
   type TelephoneTurnPayload,
   type QuizQuestionPayload,
@@ -21,19 +22,23 @@ import { connectWs, getSocket } from '@/realtime/ws';
 import { connectRoomAudio, type RoomAudioHandle } from '@/realtime/livekitAudio';
 import { ENV } from '@/config/env';
 import { Btn } from '@/components/ui';
-import { colors, radius } from '@/theme';
+import { colors, radius, wolf } from '@/theme';
+import { MicSeat, type SeatMember } from '@/components/voiceroom/MicSeat';
+import { GiftPanel } from '@/components/voiceroom/GiftPanel';
+import { GiftFly, type GiftFlyItem, BIG_GIFT_COINS } from '@/components/voiceroom/GiftFly';
+import type { GiftDef } from '@/game/gifts';
 
-const LANGS: { code: string; label: string }[] = [
+const LANGS = [
   { code: 'zh', label: '中文 🇨🇳' },
   { code: 'es', label: 'Español 🇪🇸' },
   { code: 'en', label: 'English 🇺🇸' },
   { code: 'ar', label: 'العربية 🇦🇪' },
 ];
 const PHRASES: Record<string, string[]> = {
-  zh: ['你好，很高兴认识你！', '你今天过得怎么样？', '我喜欢旅行和摄影。', '你最喜欢哪种音乐？', '希望以后能去你的城市看看。'],
-  en: ['Hi, nice to meet you!', 'How was your day?', 'I love traveling and photography.', 'What kind of music do you like?', 'I hope to visit your city someday.'],
-  es: ['¡Hola, mucho gusto!', '¿Qué tal tu día?', 'Me encanta viajar y la fotografía.', '¿Qué tipo de música te gusta?', 'Espero poder visitar tu ciudad algún día.'],
-  ar: ['مرحبا، سعيد بلقائك!', 'كيف كان يومك؟', 'أحب السفر والتصوير.', 'ما نوع الموسيقى التي تحبها؟', 'آمل أن أزور مدينتك يوما ما.'],
+  zh: ['你好，很高兴认识你！', '你今天过得怎么样？', '我喜欢旅行和摄影。'],
+  en: ['Hi, nice to meet you!', 'How was your day?', 'I love traveling and photography.'],
+  es: ['¡Hola, mucho gusto!', '¿Qué tal tu día?', 'Me encanta viajar.'],
+  ar: ['مرحبا، سعيد بلقائك!', 'كيف كان يومك؟', 'أحب السفر.'],
 };
 
 export default function BabelRoomScreen() {
@@ -46,7 +51,6 @@ export default function BabelRoomScreen() {
   const [roomId, setRoomId] = useState<string | null>(null);
   const [members, setMembers] = useState<RoomMemberDto[]>([]);
   const [captions, setCaptions] = useState<RoomCaptionPayload[]>([]);
-  const [barrages, setBarrages] = useState<RoomBarragePayload[]>([]);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
   const [telTurn, setTelTurn] = useState<TelephoneTurnPayload | null>(null);
   const [telResult, setTelResult] = useState<TelephoneResultPayload | null>(null);
@@ -58,17 +62,52 @@ export default function BabelRoomScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [audioOn, setAudioOn] = useState(false);
+  // BIGO 式新增
+  const [speaking, setSpeaking] = useState<Record<string, number>>({});
+  const [charm, setCharm] = useState<Record<string, number>>({});
+  const [flyItems, setFlyItems] = useState<GiftFlyItem[]>([]);
+  const [bigGift, setBigGift] = useState<GiftFlyItem | null>(null);
+  const [giftPanel, setGiftPanel] = useState(false);
+  const [giftTarget, setGiftTarget] = useState<RoomMemberDto | null>(null);
+  const [balance, setBalance] = useState(0);
+  const [showGames, setShowGames] = useState(false);
+  const [showInput, setShowInput] = useState(false);
+
   const audioRef = useRef<RoomAudioHandle | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+  const flyId = useRef(0);
+  const comboRef = useRef<{ key: string; id: number; combo: number; ts: number } | null>(null);
 
   const handUp = !!myId && queue.some((q) => q.userId === myId);
+  const isSpeaking = (uid: string | null) => !!uid && (speaking[uid] ?? 0) > Date.now();
 
-  useEffect(() => {
-    if (token && !getSocket()) connectWs(token);
-  }, [token]);
-
-  // 离开页面时断开音频
+  useEffect(() => { if (token && !getSocket()) connectWs(token); }, [token]);
   useEffect(() => () => { audioRef.current?.disconnect(); audioRef.current = null; }, []);
+
+  function markSpeaking(uid: string) {
+    setSpeaking((s) => ({ ...s, [uid]: Date.now() + 2500 }));
+    setTimeout(() => setSpeaking((s) => { if ((s[uid] ?? 0) <= Date.now()) { const n = { ...s }; delete n[uid]; return n; } return s; }), 2600);
+  }
+
+  function pushGift(p: RoomGiftPayload) {
+    const key = `${p.fromUserId}:${p.giftType}`;
+    if (comboRef.current && comboRef.current.key === key && p.ts - comboRef.current.ts < 3000) {
+      comboRef.current.combo += 1; comboRef.current.ts = p.ts;
+      const id = comboRef.current.id; const combo = comboRef.current.combo;
+      setFlyItems((prev) => [...prev.filter((x) => x.id !== id), { id, fromName: p.fromName, giftType: p.giftType, coins: p.coins, combo }].slice(-6));
+    } else {
+      const id = ++flyId.current;
+      comboRef.current = { key, id, combo: 1, ts: p.ts };
+      setFlyItems((prev) => [...prev, { id, fromName: p.fromName, giftType: p.giftType, coins: p.coins, combo: 1 }].slice(-6));
+      setTimeout(() => setFlyItems((prev) => prev.filter((x) => x.id !== id)), 4000);
+    }
+    if (p.coins >= BIG_GIFT_COINS) {
+      const bid = ++flyId.current;
+      setBigGift({ id: bid, fromName: p.fromName, giftType: p.giftType, coins: p.coins, combo: 1 });
+      setTimeout(() => setBigGift((cur) => (cur && cur.id === bid ? null : cur)), 2600);
+    }
+    if (p.toUserId) setCharm((c) => ({ ...c, [p.toUserId!]: (c[p.toUserId!] ?? 0) + p.coins }));
+  }
 
   useEffect(() => {
     if (!roomId) return;
@@ -77,25 +116,23 @@ export default function BabelRoomScreen() {
     const onCaption = (p: RoomCaptionPayload) => {
       if (p.roomId !== roomId) return;
       setCaptions((c) => [...c, p].slice(-100));
+      markSpeaking(p.fromUserId);
       requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
     };
-    const onJoined = (p: RoomMemberJoinedPayload) => {
-      if (p.roomId !== roomId) return;
-      setMembers((m) => (m.some((x) => x.userId === p.member.userId) ? m : [...m, p.member]));
-    };
-    const onLeft = (p: RoomMemberLeftPayload) => {
-      if (p.roomId !== roomId) return;
-      setMembers((m) => m.filter((x) => x.userId !== p.userId));
-    };
+    const onJoined = (p: RoomMemberJoinedPayload) => { if (p.roomId === roomId) setMembers((m) => (m.some((x) => x.userId === p.member.userId) ? m : [...m, p.member])); };
+    const onLeft = (p: RoomMemberLeftPayload) => { if (p.roomId === roomId) setMembers((m) => m.filter((x) => x.userId !== p.userId)); };
     const onBarrage = (p: RoomBarragePayload) => {
       if (p.roomId !== roomId) return;
-      setBarrages((b) => [...b, p].slice(-6));
+      setCaptions((c) => [...c, p].slice(-100));
+      markSpeaking(p.fromUserId);
+      requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
     };
     const onQueue = (p: RoomQueuePayload) => { if (p.roomId === roomId) setQueue(p.queue); };
     const onTurn = (p: TelephoneTurnPayload) => { if (p.roomId === roomId) { setTelTurn(p); setTelResult(null); } };
     const onResult = (p: TelephoneResultPayload) => { if (p.roomId === roomId) { setTelResult(p); setTelTurn(null); } };
     const onQuizQ = (p: QuizQuestionPayload) => { if (p.roomId === roomId) { setQuizQ(p); setQuizResult(null); setAnswered(false); } };
     const onQuizR = (p: QuizResultPayload) => { if (p.roomId === roomId) { setQuizResult(p); setQuizQ(null); } };
+    const onGift = (p: RoomGiftPayload) => { if (p.roomId === roomId) pushGift(p); };
 
     socket.on(ROOM_EVENTS.CAPTION, onCaption);
     socket.on(ROOM_EVENTS.MEMBER_JOINED, onJoined);
@@ -106,6 +143,7 @@ export default function BabelRoomScreen() {
     socket.on(ROOM_EVENTS.TELEPHONE_RESULT, onResult);
     socket.on(ROOM_EVENTS.QUIZ_QUESTION, onQuizQ);
     socket.on(ROOM_EVENTS.QUIZ_RESULT, onQuizR);
+    socket.on(ROOM_EVENTS.GIFT, onGift);
     return () => {
       socket.off(ROOM_EVENTS.CAPTION, onCaption);
       socket.off(ROOM_EVENTS.MEMBER_JOINED, onJoined);
@@ -116,6 +154,7 @@ export default function BabelRoomScreen() {
       socket.off(ROOM_EVENTS.TELEPHONE_RESULT, onResult);
       socket.off(ROOM_EVENTS.QUIZ_QUESTION, onQuizQ);
       socket.off(ROOM_EVENTS.QUIZ_RESULT, onQuizR);
+      socket.off(ROOM_EVENTS.GIFT, onGift);
     };
   }, [roomId]);
 
@@ -127,178 +166,184 @@ export default function BabelRoomScreen() {
       const res = await api.joinRoom(id, lang);
       setMembers(res.members);
       setRoomId(id);
-      // 真实音频（仅 livekit 模式 + 配了 URL；mock 下为 no-op）
       connectRoomAudio(res.token).then((h) => { audioRef.current = h; setAudioOn(!!h); }).catch(() => {});
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '进房失败');
-    } finally { setBusy(false); }
+      api.wallet().then((w) => setBalance(w.diamonds)).catch(() => {});
+    } catch (e) { setError(e instanceof Error ? e.message : '进房失败'); }
+    finally { setBusy(false); }
   }
 
   const send = async (t: string) => { const b = t.trim(); if (!b || !roomId) return; setText(''); try { await api.roomUtterance(roomId, b); } catch { /* ignore */ } };
   const barrage = async () => { const b = text.trim(); if (!b || !roomId) return; setText(''); try { await api.roomBarrage(roomId, b); } catch { /* ignore */ } };
   const toggleHand = async () => { if (!roomId) return; try { handUp ? await api.roomLowerHand(roomId) : await api.roomRaiseHand(roomId); } catch { /* ignore */ } };
-  const startTel = async () => { if (!roomId) return; const seed = text.trim() || (PHRASES[lang] ?? PHRASES.en)[0]; setText(''); try { await api.telephoneStart(roomId, seed); } catch (e) { setError(e instanceof Error ? e.message : ''); } };
+  const startTel = async () => { if (!roomId) return; const seed = (PHRASES[lang] ?? PHRASES.en)[0]; try { await api.telephoneStart(roomId, seed); } catch (e) { setError(e instanceof Error ? e.message : ''); } };
   const passTel = async () => { if (!roomId || !telTurn) return; const t = passText.trim() || telTurn.heardText; setPassText(''); try { await api.telephonePass(roomId, telTurn.gameId, t); setTelTurn(null); } catch { /* ignore */ } };
   const startQuiz = async () => { if (!roomId) return; try { await api.quizStart(roomId); } catch (e) { setError(e instanceof Error ? e.message : ''); } };
   const answerQuiz = async (choice: number) => { if (!roomId || !quizQ || answered) return; setAnswered(true); try { await api.quizAnswer(roomId, quizQ.questionId, choice); } catch { /* ignore */ } };
+  const sendGift = async (g: GiftDef) => { if (!roomId) return; setGiftPanel(false); try { await api.roomGift(roomId, g.type, g.coins, giftTarget?.userId ?? null); } catch { /* ignore */ } };
+  const onSeatPress = (m: RoomMemberDto | null) => { if (!m) { toggleHand(); return; } setGiftTarget(m); setGiftPanel(true); };
+  const openGift = () => { setGiftTarget(members[0] ?? null); setGiftPanel(true); };
   const leave = async () => { audioRef.current?.disconnect(); audioRef.current = null; if (roomId) { try { await api.leaveRoom(roomId); } catch { /* ignore */ } } router.back(); };
 
   // ---------- 进房前 ----------
   if (!roomId) {
     return (
-      <View style={s.container}>
-        <Text style={s.title}>🗣 巴别塔语聊房</Text>
-        <Text style={s.sub}>每人说母语，各自看到自己语言的字幕。含弹幕 / 上麦 / 跨语言传话。</Text>
+      <View style={s.lobby}>
+        <Text style={s.title}>🎤 语聊房</Text>
+        <Text style={s.sub}>BIGO 式麦位语聊房：上麦、送礼、跨语言字幕。各人说母语，看到自己语言的字幕。</Text>
         <Text style={s.label}>我的语言</Text>
         <View style={s.row}>{LANGS.map((l) => <Chip key={l.code} label={l.label} active={lang === l.code} onPress={() => setLang(l.code)} />)}</View>
         <Text style={s.label}>房间号（留空＝新建房间）</Text>
-        <TextInput value={roomInput} onChangeText={setRoomInput} placeholder="粘贴房间号加入，或留空新建" placeholderTextColor={colors.textDim} style={s.input} autoCapitalize="none" />
+        <TextInput value={roomInput} onChangeText={setRoomInput} placeholder="粘贴房间号加入，或留空新建" placeholderTextColor="rgba(255,255,255,0.4)" style={s.input} autoCapitalize="none" />
         {error && <Text style={s.error}>{error}</Text>}
         <Btn label={busy ? '进入中…' : '进入房间'} variant="primary" onPress={enter} style={{ marginTop: 16 }} />
-        <Text style={s.hint}>两个浏览器窗口分别选不同语言进同一房间号，即可体验跨语言玩法。</Text>
+        <Text style={s.hint}>两个窗口选不同语言进同一房间号，即可体验跨语言麦位语聊 + 送礼。</Text>
       </View>
     );
   }
 
-  // ---------- 房内 ----------
-  const myPhrases = PHRASES[lang] ?? PHRASES.en;
+  // ---------- 房内（BIGO 布局）----------
+  const host = members[0] ?? null;
+  const seatMembers = members.slice(1, 9);
+  const seats: (RoomMemberDto | null)[] = Array.from({ length: 8 }, (_, i) => seatMembers[i] ?? null);
+  const toSeatMember = (m: RoomMemberDto | null): SeatMember | null => (m ? { userId: m.userId, displayName: m.displayName } : null);
+
   return (
-    <View style={s.container}>
-      <View style={s.headerRow}>
-        <Text style={s.roomTitle}>房间 {roomId.slice(0, 8)}…</Text>
-        <Btn label="离开" variant="ghost" onPress={leave} />
-      </View>
-      <Text selectable style={s.roomIdLine}>房间号：{roomId}（复制到另一窗口加入）</Text>
-      <Text style={s.roomIdLine}>{audioOn ? '🎧 实时语音已接入（LiveKit）' : ENV.transport === 'livekit' ? '🎧 语音未连接（检查 LIVEKIT_URL）' : '💬 打字模式（mock，真实语音见 LIVEKIT-SETUP.md）'}</Text>
-
-      {/* 成员 + 麦序 */}
-      <View style={s.row}>
-        {members.map((m) => {
-          const pos = queue.findIndex((q) => q.userId === m.userId);
-          return (
-            <View key={m.userId} style={s.member}>
-              <Text style={s.memberName}>{m.displayName}{pos >= 0 ? ` ✋${pos + 1}` : ''}</Text>
-              <Text style={s.memberLang}>{m.language}</Text>
-            </View>
-          );
-        })}
-      </View>
-
-      {/* 弹幕条 */}
-      {barrages.length > 0 && (
-        <View style={s.barrageBar}>
-          {barrages.slice(-4).map((b, i) => (
-            <Text key={i} style={s.barrageItem} numberOfLines={1}>💬 {b.fromName}: {b.translatedText}</Text>
-          ))}
+    <View style={s.room}>
+      {/* 顶栏 */}
+      <View style={s.topBar}>
+        <Pressable onPress={leave}><Text style={s.topIcon}>←</Text></Pressable>
+        <View style={{ flex: 1 }}>
+          <Text style={s.roomName} numberOfLines={1}>房间 {roomId.slice(0, 6)}</Text>
+          <Text style={s.roomMeta}>在线 {members.length} · {audioOn ? '🎧 语音' : ENV.transport === 'livekit' ? '语音未连' : '💬 打字'}</Text>
         </View>
-      )}
+        <Text selectable style={s.roomIdCopy}>{roomId.slice(0, 8)}…</Text>
+      </View>
 
-      {/* 传话游戏卡 */}
+      {/* 麦位区 */}
+      <View style={s.hostRow}>
+        <MicSeat seatNo={0} member={toSeatMember(host)} isHost isMe={host?.userId === myId} speaking={isSpeaking(host?.userId ?? null)} charm={host ? charm[host.userId] ?? 0 : 0} onPress={() => onSeatPress(host)} />
+      </View>
+      <View style={s.seatGrid}>
+        {seats.map((m, i) => (
+          <MicSeat
+            key={i}
+            seatNo={i + 1}
+            member={toSeatMember(m)}
+            isMe={m?.userId === myId}
+            speaking={isSpeaking(m?.userId ?? null)}
+            charm={m ? charm[m.userId] ?? 0 : 0}
+            onPress={() => onSeatPress(m)}
+          />
+        ))}
+      </View>
+
+      {/* 游戏卡（保留传话/PK） */}
       {telTurn && (
         <View style={s.gameCard}>
-          <Text style={s.gameTitle}>🔔 轮到你传话（第 {telTurn.hop} 棒）</Text>
-          <Text style={s.gameHeard}>你听到（{telTurn.heardLang}）：{telTurn.heardText}</Text>
+          <Text style={s.gameTitle}>🔔 轮到你传话（第 {telTurn.hop} 棒）：{telTurn.heardText}</Text>
           <View style={s.sendRow}>
-            <TextInput value={passText} onChangeText={setPassText} placeholder="用你的话复述，传给下一个…" placeholderTextColor={colors.textDim} style={[s.input, { flex: 1, marginBottom: 0 }]} onSubmitEditing={passTel} />
-            <Btn label="传下去" variant="accent" onPress={passTel} />
+            <TextInput value={passText} onChangeText={setPassText} placeholder="复述传下去…" placeholderTextColor="rgba(255,255,255,0.4)" style={[s.input, { flex: 1, marginBottom: 0 }]} onSubmitEditing={passTel} />
+            <Btn label="传" variant="accent" onPress={passTel} />
           </View>
         </View>
       )}
-      {telResult && (
-        <View style={s.gameCard}>
-          <Text style={s.gameTitle}>📞 传话结果（看走样了多少）</Text>
-          {telResult.chain.map((c, i) => (
-            <Text key={i} style={s.chainLine}>{i + 1}. {c.displayName}（{c.lang}）：{c.text}</Text>
-          ))}
-          <Text style={s.gameHeard}>起：{telResult.startText} → 终：{telResult.endText}</Text>
-          <Btn label="知道了" variant="ghost" onPress={() => setTelResult(null)} style={{ marginTop: 8 }} />
-        </View>
-      )}
-
-      {/* PK 抢答 */}
+      {telResult && (<View style={s.gameCard}><Text style={s.gameTitle}>📞 传话：{telResult.startText} → {telResult.endText}</Text><Btn label="知道了" variant="ghost" onPress={() => setTelResult(null)} /></View>)}
       {quizQ && (
         <View style={s.gameCard}>
-          <Text style={s.gameTitle}>🏆 PK 抢答（第 {quizQ.index + 1}/{quizQ.total} 题）</Text>
-          <Text style={s.translated}>{quizQ.prompt}</Text>
-          <View style={s.row}>
-            {quizQ.options.map((opt, i) => (
-              <Chip key={i} label={opt} active={false} onPress={() => answerQuiz(i)} />
-            ))}
-          </View>
-          {answered && <Text style={s.gameHeard}>已抢答，等结果…</Text>}
+          <Text style={s.gameTitle}>🏆 抢答（{quizQ.index + 1}/{quizQ.total}）{quizQ.prompt}</Text>
+          <View style={s.row}>{quizQ.options.map((opt, i) => <Chip key={i} label={opt} onPress={() => answerQuiz(i)} />)}</View>
+          {answered && <Text style={s.dim}>已抢答…</Text>}
         </View>
       )}
-      {quizResult && (
-        <View style={s.gameCard}>
-          <Text style={s.gameTitle}>🏁 PK 结果{quizResult.winner ? ` · 🥇 ${quizResult.winner.displayName}` : ' · 平局'}</Text>
-          {quizResult.scores.map((sc) => (
-            <Text key={sc.userId} style={s.chainLine}>{sc.displayName}：{sc.score} 分</Text>
-          ))}
-          <Btn label="知道了" variant="ghost" onPress={() => setQuizResult(null)} style={{ marginTop: 8 }} />
-        </View>
-      )}
+      {quizResult && (<View style={s.gameCard}><Text style={s.gameTitle}>🏁 {quizResult.winner ? `🥇 ${quizResult.winner.displayName}` : '平局'}</Text><Btn label="知道了" variant="ghost" onPress={() => setQuizResult(null)} /></View>)}
 
-      {/* 字幕流 */}
-      <ScrollView ref={scrollRef} style={s.feed} contentContainerStyle={{ padding: 12, gap: 10 }}>
+      {/* 公屏消息 */}
+      <ScrollView ref={scrollRef} style={s.feed} contentContainerStyle={{ padding: 10, gap: 6 }}>
         {captions.length === 0 ? (
-          <Text style={{ color: colors.textDim, textAlign: 'center', marginTop: 24 }}>还没有字幕。下面发言、发弹幕，或开一局传话游戏。</Text>
+          <Text style={s.dimCenter}>欢迎来到语聊房 · 发言、送礼、开游戏</Text>
         ) : captions.map((c, i) => (
-          <View key={i} style={s.bubble}>
-            <Text style={s.from}>{c.fromName} · {c.originalLang}→{c.targetLang}</Text>
-            <Text style={s.translated}>{c.translatedText}</Text>
-            <Text style={s.original}>{c.originalText}</Text>
-          </View>
+          <Text key={i} style={s.msg}>
+            <Text style={s.msgName}>{c.fromName}：</Text>
+            <Text style={s.msgText}>{c.translatedText}</Text>
+          </Text>
         ))}
       </ScrollView>
 
-      {/* 控制行 */}
-      <View style={s.row}>
-        <Btn label={handUp ? '✋ 下麦' : '✋ 上麦'} variant={handUp ? 'accent' : 'ghost'} onPress={toggleHand} />
-        <Btn label="🎙 开一局传话" variant="ghost" onPress={startTel} />
-        <Btn label="🏆 PK 抢答" variant="ghost" onPress={startQuiz} />
+      {/* 礼物飘屏 */}
+      <GiftFly items={flyItems} big={bigGift} />
+
+      {/* 输入条（可展开） */}
+      {showInput && (
+        <View style={s.inputRow}>
+          {(PHRASES[lang] ?? PHRASES.en).slice(0, 2).map((p) => <Chip key={p} label={p.length > 8 ? p.slice(0, 8) + '…' : p} onPress={() => send(p)} />)}
+          <TextInput value={text} onChangeText={setText} placeholder={`用${lang}说点什么…`} placeholderTextColor="rgba(255,255,255,0.4)" style={[s.input, { flex: 1, marginBottom: 0 }]} onSubmitEditing={() => send(text)} autoFocus />
+          <Btn label="弹幕" variant="ghost" onPress={barrage} />
+          <Btn label="发送" variant="primary" onPress={() => send(text)} />
+        </View>
+      )}
+
+      {/* 游戏行（可展开） */}
+      {showGames && (
+        <View style={s.gamesRow}>
+          <Btn label="🎙 开一局传话" variant="ghost" onPress={startTel} />
+          <Btn label="🏆 PK 抢答" variant="ghost" onPress={startQuiz} />
+        </View>
+      )}
+
+      {/* 底部操作条 */}
+      <View style={s.bottomBar}>
+        <BarBtn label={handUp ? '🎙' : '🔇'} active={handUp} onPress={toggleHand} />
+        <Pressable style={s.fakeInput} onPress={() => setShowInput((v) => !v)}><Text style={s.fakeInputText}>说点什么…</Text></Pressable>
+        <BarBtn label="🎮" active={showGames} onPress={() => setShowGames((v) => !v)} />
+        <BarBtn label="🎁" onPress={openGift} accent />
       </View>
 
-      {/* 快捷发言 */}
-      <View style={s.row}>{myPhrases.slice(0, 3).map((p) => <Chip key={p} label={p.length > 10 ? p.slice(0, 10) + '…' : p} onPress={() => send(p)} />)}</View>
-      <View style={s.sendRow}>
-        <TextInput value={text} onChangeText={setText} placeholder={`用${lang}说点什么…`} placeholderTextColor={colors.textDim} style={[s.input, { flex: 1, marginBottom: 0 }]} onSubmitEditing={() => send(text)} />
-        <Btn label="弹幕" variant="ghost" onPress={barrage} />
-        <Btn label="发送" variant="primary" onPress={() => send(text)} />
-      </View>
+      {/* 礼物面板 */}
+      <GiftPanel visible={giftPanel} balance={balance} targetName={giftTarget?.displayName ?? '全场'} onClose={() => setGiftPanel(false)} onSend={sendGift} />
     </View>
   );
 }
 
 function Chip({ label, active, onPress }: { label: string; active?: boolean; onPress: () => void }) {
-  return <Text onPress={onPress} style={[s.chip, active && { backgroundColor: colors.primary, borderColor: colors.primary, color: '#fff' }]}>{label}</Text>;
+  return <Text onPress={onPress} style={[s.chip, active && { backgroundColor: wolf.gold, borderColor: wolf.gold, color: '#1a1614' }]}>{label}</Text>;
+}
+function BarBtn({ label, active, accent, onPress }: { label: string; active?: boolean; accent?: boolean; onPress: () => void }) {
+  return <Pressable onPress={onPress} style={[s.barBtn, active && { backgroundColor: 'rgba(197,160,89,0.25)' }, accent && { backgroundColor: colors.accent }]}><Text style={s.barIcon}>{label}</Text></Pressable>;
 }
 
+const PANEL = 'rgba(255,255,255,0.06)';
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg, padding: 16, gap: 8 },
-  title: { color: colors.text, fontSize: 24, fontWeight: '800', marginTop: 8 },
-  sub: { color: colors.textDim, marginBottom: 8 },
-  label: { color: colors.textDim, fontSize: 13, marginTop: 8 },
+  lobby: { flex: 1, backgroundColor: '#14101a', padding: 20, paddingTop: 56, gap: 8 },
+  room: { flex: 1, backgroundColor: '#14101a' },
+  title: { color: '#fff', fontSize: 26, fontWeight: '900', marginTop: 8 },
+  sub: { color: 'rgba(255,255,255,0.7)', marginBottom: 8, lineHeight: 20 },
+  label: { color: wolf.gold, fontSize: 13, marginTop: 8, fontWeight: '700' },
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
-  chip: { color: colors.textDim, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.pill, overflow: 'hidden', fontWeight: '700', fontSize: 13 },
-  input: { color: colors.text, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 4 },
-  error: { color: colors.danger, marginTop: 6 },
-  hint: { color: colors.textDim, fontSize: 12, marginTop: 16, lineHeight: 18 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 },
-  roomTitle: { color: colors.text, fontSize: 18, fontWeight: '800' },
-  roomIdLine: { color: colors.textDim, fontSize: 12 },
-  member: { backgroundColor: colors.surface2, borderRadius: radius.sm, paddingHorizontal: 10, paddingVertical: 6 },
-  memberName: { color: colors.text, fontWeight: '700', fontSize: 13 },
-  memberLang: { color: colors.textDim, fontSize: 11 },
-  barrageBar: { backgroundColor: colors.surface2, borderRadius: radius.sm, padding: 8, gap: 2 },
-  barrageItem: { color: colors.accent, fontSize: 12, fontWeight: '600' },
-  gameCard: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, padding: 12, gap: 6 },
-  gameTitle: { color: colors.text, fontWeight: '800', fontSize: 15 },
-  gameHeard: { color: colors.textDim, fontSize: 13 },
-  chainLine: { color: colors.text, fontSize: 13 },
-  feed: { flex: 1, backgroundColor: colors.surface, borderRadius: radius.md, marginTop: 4 },
-  bubble: { backgroundColor: colors.surface2, borderRadius: radius.md, padding: 12 },
-  from: { color: colors.textDim, fontSize: 11, marginBottom: 4 },
-  translated: { color: colors.text, fontSize: 17, fontWeight: '700' },
-  original: { color: colors.textDim, fontSize: 12, marginTop: 4 },
-  sendRow: { flexDirection: 'row', gap: 8, alignItems: 'center', marginTop: 4 },
+  chip: { color: 'rgba(255,255,255,0.85)', borderWidth: 1, borderColor: wolf.border, backgroundColor: PANEL, paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.pill, overflow: 'hidden', fontWeight: '700', fontSize: 13 },
+  input: { color: '#fff', backgroundColor: PANEL, borderWidth: 1, borderColor: wolf.border, borderRadius: radius.md, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 4 },
+  error: { color: wolf.bloodLight, marginTop: 6 },
+  hint: { color: 'rgba(255,255,255,0.5)', fontSize: 12, marginTop: 16, lineHeight: 18 },
+  topBar: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingTop: 44, paddingBottom: 8 },
+  topIcon: { color: '#fff', fontSize: 22, fontWeight: '700' },
+  roomName: { color: '#fff', fontSize: 15, fontWeight: '800' },
+  roomMeta: { color: 'rgba(255,255,255,0.55)', fontSize: 11 },
+  roomIdCopy: { color: 'rgba(255,255,255,0.4)', fontSize: 11 },
+  hostRow: { alignItems: 'center', marginTop: 4 },
+  seatGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 4, marginTop: 8, paddingHorizontal: 8 },
+  gameCard: { backgroundColor: PANEL, borderWidth: 1, borderColor: wolf.gold, borderRadius: radius.md, padding: 10, gap: 6, marginHorizontal: 12, marginTop: 6 },
+  gameTitle: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  dim: { color: 'rgba(255,255,255,0.6)', fontSize: 12 },
+  dimCenter: { color: 'rgba(255,255,255,0.45)', textAlign: 'center', marginTop: 16 },
+  feed: { flex: 1, marginHorizontal: 12, marginTop: 8, backgroundColor: 'rgba(0,0,0,0.25)', borderRadius: radius.md },
+  msg: { fontSize: 13, lineHeight: 19 },
+  msgName: { color: wolf.gold, fontWeight: '700' },
+  msgText: { color: 'rgba(255,255,255,0.9)' },
+  inputRow: { flexDirection: 'row', gap: 6, alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6, flexWrap: 'wrap' },
+  gamesRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingVertical: 6 },
+  bottomBar: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 10, paddingBottom: 22 },
+  barBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: PANEL, alignItems: 'center', justifyContent: 'center' },
+  barIcon: { fontSize: 20 },
+  fakeInput: { flex: 1, height: 40, borderRadius: 20, backgroundColor: PANEL, justifyContent: 'center', paddingHorizontal: 16 },
+  fakeInputText: { color: 'rgba(255,255,255,0.45)', fontSize: 14 },
+  sendRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
 });

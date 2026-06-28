@@ -63,6 +63,8 @@ export const api = {
   quizStart: (id: string) => apiFetch<{ quizId: string }>('POST', `/rooms/${id}/quiz/start`),
   quizAnswer: (id: string, questionId: string, choice: number) =>
     apiFetch<{ ok: true }>('POST', `/rooms/${id}/quiz/answer`, { questionId, choice }),
+  roomGift: (id: string, giftType: string, coins: number, toUserId?: string | null) =>
+    apiFetch<{ ok: true }>('POST', `/rooms/${id}/gift`, { giftType, coins, toUserId }),
   // 跨语言狼人杀
   wolfCreate: (boardKey: string, language: string) =>
     apiFetch<WolfCreateResponse>('POST', '/werewolf', { boardKey, language }),

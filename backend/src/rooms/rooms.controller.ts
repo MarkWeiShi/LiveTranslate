@@ -4,6 +4,7 @@ import { CurrentUser, type AuthUser } from '../common/decorators/current-user.de
 import { RoomsService } from './rooms.service';
 import {
   BarrageDto,
+  GiftDto,
   JoinRoomDto,
   QuizAnswerDto,
   TelephonePassDto,
@@ -76,5 +77,10 @@ export class RoomsController {
   @Post(':id/quiz/answer')
   quizAnswer(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() body: QuizAnswerDto) {
     return this.rooms.quizAnswer(id, u.userId, body.questionId, body.choice);
+  }
+
+  @Post(':id/gift')
+  gift(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() body: GiftDto) {
+    return this.rooms.gift(id, u.userId, body.giftType, body.coins, body.toUserId);
   }
 }

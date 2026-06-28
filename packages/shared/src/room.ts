@@ -13,6 +13,7 @@ export const ROOM_EVENTS = {
   TELEPHONE_RESULT: 'room.telephone_result', // 传话：最终对比
   QUIZ_QUESTION: 'room.quiz_question', // PK 抢答：出题（按各自语言）
   QUIZ_RESULT: 'room.quiz_result', // PK 抢答：结算
+  GIFT: 'room.gift', // 送礼（BIGO 式）：广播给全房 → 飘屏 + 累计魅力值
 } as const;
 
 export interface RoomMemberDto {
@@ -126,4 +127,16 @@ export interface QuizResultPayload {
   quizId: string;
   scores: QuizScore[];
   winner: QuizScore | null; // 平局为 null
+}
+
+// 送礼（BIGO 式）：广播给全房（含发送者），各端播放飘屏 + 累计目标麦位魅力值。
+export interface GiftBody { giftType: string; coins: number; toUserId?: string | null }
+export interface RoomGiftPayload {
+  roomId: string;
+  fromUserId: string;
+  fromName: string;
+  giftType: string; // 礼物 key（前端目录映射 emoji/价格）
+  coins: number; // 价值（用于魅力值累计 + 大小礼物判定）
+  toUserId: string | null; // 受赠麦位（null=送给全场/房主）
+  ts: number;
 }
