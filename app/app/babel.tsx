@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, View, Pressable } from 'react-native';
+import { Image, ScrollView, StyleSheet, Text, TextInput, View, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
   ROOM_EVENTS,
@@ -26,6 +26,7 @@ import { ENV } from '@/config/env';
 import { Btn } from '@/components/ui';
 import { colors, radius, wolf } from '@/theme';
 import { MicSeat, type SeatMember } from '@/components/voiceroom/MicSeat';
+import { avatarUrl } from '@/game/avatar';
 import { GiftPanel } from '@/components/voiceroom/GiftPanel';
 import { GiftFly, type GiftFlyItem, BIG_GIFT_COINS } from '@/components/voiceroom/GiftFly';
 import { RechargeSheet } from '@/components/voiceroom/RechargeSheet';
@@ -87,6 +88,7 @@ export default function BabelRoomScreen() {
   const [rechargeBusy, setRechargeBusy] = useState(false);
   const [showGames, setShowGames] = useState(false);
   const [showInput, setShowInput] = useState(false);
+  const [following, setFollowing] = useState(false);
 
   const audioRef = useRef<RoomAudioHandle | null>(null);
   const scrollRef = useRef<ScrollView>(null);
@@ -270,29 +272,53 @@ export default function BabelRoomScreen() {
   const hostSeat = seats[0] ?? null;
   const gridSeats = seats.slice(1);
   const seatMember = (seat: SeatDto | null): SeatMember | null => (seat?.userId ? { userId: seat.userId, displayName: seat.displayName ?? '' } : null);
+  const nameOf = (uid: string) => members.find((m) => m.userId === uid)?.displayName ?? seats.find((x) => x.userId === uid)?.displayName ?? '？';
+  const contributors = Object.entries(charm).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, 3);
 
   return (
     <View style={s.room}>
-      {/* 顶栏 */}
+      {/* 房间渐变氛围背景 */}
+      <View style={s.bgTop} pointerEvents="none" />
+      <View style={s.bgGlow} pointerEvents="none" />
+
+      {/* 顶栏：房主头像 + 房名 + 在线 + 关注 */}
       <View style={s.topBar}>
         <Pressable onPress={leave}><Text style={s.topIcon}>←</Text></Pressable>
+        {hostSeat?.userId
+          ? <Image source={{ uri: avatarUrl(hostSeat.userId) }} style={s.topAvatar} />
+          : <View style={[s.topAvatar, { backgroundColor: 'rgba(255,255,255,0.1)' }]} />}
         <View style={{ flex: 1 }}>
-          <Text style={s.roomName} numberOfLines={1}>房间 {roomId.slice(0, 6)}</Text>
-          <Text style={s.roomMeta}>在线 {members.length} · 听众 {audienceCount} · {audioOn ? '🎧' : ENV.transport === 'livekit' ? '语音未连' : '💬'}</Text>
+          <Text style={s.roomName} numberOfLines={1}>{hostSeat?.displayName ?? '语聊房'} 的房间</Text>
+          <Text style={s.roomMeta}>ID {roomId.slice(0, 6)} · 在线 {members.length} · {audioOn ? '🎧 语音' : ENV.transport === 'livekit' ? '语音未连' : '💬 打字'}</Text>
         </View>
-        {isHost && (
+        {isHost ? (
           <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
-            <Pressable onPress={toggleMode} style={s.modeBtn}>
-              <Text style={s.modeText}>{micMode === 'free' ? '自由上麦' : '审批上麦'}</Text>
-            </Pressable>
+            <Pressable onPress={toggleMode} style={s.modeBtn}><Text style={s.modeText}>{micMode === 'free' ? '自由' : '审批'}</Text></Pressable>
             {micMode === 'approval' && (
-              <Pressable onPress={() => setShowRequests(true)} style={s.reqBtn}>
-                <Text style={s.reqText}>申请{micRequests.length > 0 ? ` ·${micRequests.length}` : ''}</Text>
-              </Pressable>
+              <Pressable onPress={() => setShowRequests(true)} style={s.reqBtn}><Text style={s.reqText}>申请{micRequests.length > 0 ? `·${micRequests.length}` : ''}</Text></Pressable>
             )}
           </View>
+        ) : (
+          <Pressable onPress={() => setFollowing((v) => !v)} style={[s.followBtn, following && s.followingBtn]}>
+            <Text style={[s.followText, following && { color: 'rgba(255,255,255,0.6)' }]}>{following ? '已关注' : '+ 关注'}</Text>
+          </Pressable>
         )}
       </View>
+
+      {/* 贡献榜 Top3 */}
+      {contributors.length > 0 && (
+        <View style={s.contribBar}>
+          <Text style={s.contribLabel}>🏆 贡献榜</Text>
+          {contributors.map(([uid, v], i) => (
+            <View key={uid} style={s.contribItem}>
+              <Text style={s.contribRank}>{['①', '②', '③'][i]}</Text>
+              <Image source={{ uri: avatarUrl(uid) }} style={s.contribAvatar} />
+              <Text style={s.contribName} numberOfLines={1}>{nameOf(uid)}</Text>
+              <Text style={s.contribVal}>💎{v}</Text>
+            </View>
+          ))}
+        </View>
+      )}
 
       {/* 麦位区 */}
       <View style={s.hostRow}>
@@ -341,10 +367,10 @@ export default function BabelRoomScreen() {
         {captions.length === 0 ? (
           <Text style={s.dimCenter}>欢迎来到语聊房 · 发言、送礼、开游戏</Text>
         ) : captions.map((c, i) => (
-          <Text key={i} style={s.msg}>
-            <Text style={s.msgName}>{c.fromName}：</Text>
+          <View key={i} style={s.msgBubble}>
+            <Text style={s.msgName}>{c.fromName}</Text>
             <Text style={s.msgText}>{c.translatedText}</Text>
-          </Text>
+          </View>
         ))}
       </ScrollView>
 
@@ -437,6 +463,20 @@ const PANEL = 'rgba(255,255,255,0.06)';
 const s = StyleSheet.create({
   lobby: { flex: 1, backgroundColor: '#14101a', padding: 20, paddingTop: 56, gap: 8 },
   room: { flex: 1, backgroundColor: '#14101a' },
+  bgTop: { position: 'absolute', top: 0, left: 0, right: 0, height: 260, backgroundColor: '#3a1d5c' },
+  bgGlow: { position: 'absolute', top: -80, left: '10%', width: '80%', height: 320, borderRadius: 9999, backgroundColor: '#7c3aed', opacity: 0.35, filter: 'blur(80px)' as unknown as undefined },
+  topAvatar: { width: 34, height: 34, borderRadius: 17, marginRight: 8, backgroundColor: 'rgba(0,0,0,0.3)' },
+  followBtn: { backgroundColor: colors.accent, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 6 },
+  followingBtn: { backgroundColor: 'rgba(255,255,255,0.12)' },
+  followText: { color: '#fff', fontWeight: '800', fontSize: 12 },
+  contribBar: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 6 },
+  contribLabel: { color: wolf.gold, fontSize: 12, fontWeight: '700' },
+  contribItem: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: 'rgba(0,0,0,0.25)', borderRadius: radius.pill, paddingHorizontal: 6, paddingVertical: 2 },
+  contribRank: { color: wolf.gold, fontSize: 12 },
+  contribAvatar: { width: 18, height: 18, borderRadius: 9, backgroundColor: 'rgba(255,255,255,0.1)' },
+  contribName: { color: '#fff', fontSize: 11, maxWidth: 48 },
+  contribVal: { color: wolf.gold, fontSize: 10, fontWeight: '700' },
+  msgBubble: { backgroundColor: 'rgba(0,0,0,0.35)', borderRadius: 14, paddingHorizontal: 10, paddingVertical: 6, alignSelf: 'flex-start', maxWidth: '92%' },
   title: { color: '#fff', fontSize: 26, fontWeight: '900', marginTop: 8 },
   sub: { color: 'rgba(255,255,255,0.7)', marginBottom: 8, lineHeight: 20 },
   label: { color: wolf.gold, fontSize: 13, marginTop: 8, fontWeight: '700' },
@@ -465,9 +505,8 @@ const s = StyleSheet.create({
   dim: { color: 'rgba(255,255,255,0.6)', fontSize: 12 },
   dimCenter: { color: 'rgba(255,255,255,0.45)', textAlign: 'center', marginTop: 16 },
   feed: { flex: 1, marginHorizontal: 12, marginTop: 8, backgroundColor: 'rgba(0,0,0,0.25)', borderRadius: radius.md },
-  msg: { fontSize: 13, lineHeight: 19 },
-  msgName: { color: wolf.gold, fontWeight: '700' },
-  msgText: { color: 'rgba(255,255,255,0.9)' },
+  msgName: { color: wolf.gold, fontWeight: '700', fontSize: 11, marginBottom: 1 },
+  msgText: { color: 'rgba(255,255,255,0.92)', fontSize: 14, lineHeight: 19 },
   inputRow: { flexDirection: 'row', gap: 6, alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6, flexWrap: 'wrap' },
   gamesRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingVertical: 6 },
   bottomBar: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 10, paddingBottom: 22 },

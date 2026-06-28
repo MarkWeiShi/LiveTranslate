@@ -1,0 +1,14 @@
+{
+  "name": "voice-room-harness",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "语聊房逆向采集（Playwright + Claude Vision）—— 见 README.md",
+  "scripts": {
+    "capture": "node capture.mjs",
+    "analyze": "node analyze.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
+  }
+}
