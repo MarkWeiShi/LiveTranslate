@@ -24,3 +24,8 @@ export class WolfSpeakDto {
 export class WolfVoteDto {
   @IsOptional() @IsInt() @Min(0) targetSeat?: number | null;
 }
+
+export class WolfGiftDto {
+  @IsString() giftType!: string;
+  @IsOptional() @IsInt() @Min(0) toSeat?: number | null;
+}

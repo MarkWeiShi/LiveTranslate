@@ -32,6 +32,7 @@ async function main() {
   console.log(`\n=== Werewolf smoke @ ${BASE} ===\n`);
   const a = await login('seed_male_01'); // 真人，语言 zh
   const aTok = a.json.token;
+  const aId = a.json.user.id;
 
   const sa = connect(aTok);
   await onConnect(sa);
@@ -79,6 +80,15 @@ async function main() {
 
   const hostLine = await hostP;
   ok('收到本地化主持旁白', !!hostLine.v?.text, hostLine.err ?? `"${hostLine.v?.text}"`);
+
+  // 送礼（复用语聊房礼物经济）：充值后给 1 号麦送 rose，扣费 + 广播
+  const beforeBal = (await req('GET', '/wallet', { token: aTok })).json?.diamonds ?? 0;
+  await req('POST', '/wallet/recharge/dev', { token: aTok, body: { packId: 'p1' } }); // +50
+  const giftP = safe(waitFor(sa, 'wolf.gift', { predicate: (p) => p.fromUserId === aId }));
+  const giftRes = await req('POST', `/werewolf/${gameId}/gift`, { token: aTok, body: { giftType: 'rose', toSeat: 1 } });
+  const gift = await giftP;
+  ok('狼人杀送礼：收到广播（rose=1，受赠1号）', gift.v?.giftType === 'rose' && gift.v?.coins === 1 && gift.v?.toSeat === 1, gift.err ?? `got=${JSON.stringify(gift.v)}`);
+  ok('狼人杀送礼：扣费后余额 = 充值后-1', giftRes.json?.balance === beforeBal + 50 - 1, `balance=${giftRes.json?.balance}`);
 
   // 全程交给 AI 推进，等待结算（AI 步骤瞬时，发言/投票有计时，约数十秒内结束）
   // 投票弃票兜底：防止多次重复投票报错（vote 已记录后再投会被忽略，无妨）

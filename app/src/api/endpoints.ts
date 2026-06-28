@@ -98,6 +98,8 @@ export const api = {
   wolfPass: (id: string) => apiFetch<{ ok: true }>('POST', `/werewolf/${id}/pass`),
   wolfVote: (id: string, targetSeat: number | null) =>
     apiFetch<{ ok: true }>('POST', `/werewolf/${id}/vote`, { targetSeat }),
+  wolfGift: (id: string, giftType: string, toSeat?: number | null) =>
+    apiFetch<{ ok: true; balance: number }>('POST', `/werewolf/${id}/gift`, { giftType, toSeat }),
   wolfLeave: (id: string) => apiFetch<void>('POST', `/werewolf/${id}/leave`),
   // 充值（Telegram Stars / dev mock）
   walletRecharge: (packId: string) =>

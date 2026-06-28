@@ -2,7 +2,7 @@ import { Body, Controller, Get, HttpCode, Param, Post, UseGuards } from '@nestjs
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser, type AuthUser } from '../common/decorators/current-user.decorator';
 import { WerewolfService } from './werewolf.service';
-import { WolfCreateDto, WolfJoinDto, WolfNightActionDto, WolfSpeakDto, WolfVoteDto } from './dto/werewolf.dto';
+import { WolfCreateDto, WolfGiftDto, WolfJoinDto, WolfNightActionDto, WolfSpeakDto, WolfVoteDto } from './dto/werewolf.dto';
 
 @Controller('werewolf')
 @UseGuards(JwtAuthGuard)
@@ -46,6 +46,11 @@ export class WerewolfController {
   @Post(':id/vote')
   vote(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() body: WolfVoteDto) {
     return this.wolf.vote(id, u.userId, body.targetSeat ?? null);
+  }
+
+  @Post(':id/gift')
+  gift(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() body: WolfGiftDto) {
+    return this.wolf.gift(id, u.userId, body.giftType, body.toSeat);
   }
 
   @Post(':id/leave')

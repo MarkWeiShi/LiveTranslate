@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import {
   WEREWOLF_EVENTS,
   WEREWOLF_BOARDS,
@@ -10,6 +10,8 @@ import {
   type WolfSpeechPayload,
   type WolfStatePayload,
   type WolfFxPayload,
+  type WolfGiftPayload,
+  type StarPack,
 } from '@linku/shared';
 import { api } from '@/api/endpoints';
 import { useAuthStore } from '@/stores/authStore';
@@ -23,6 +25,11 @@ import { RoleRevealCard } from '@/components/werewolf/RoleRevealCard';
 import { NightFx, type NightFxState, type NightFxType } from '@/components/werewolf/NightFx';
 import { TypewriterText } from '@/components/werewolf/TypewriterText';
 import { useSpeechRecognition } from '@/game/useSpeechRecognition';
+import { GiftPanel } from '@/components/voiceroom/GiftPanel';
+import { GiftFly, type GiftFlyItem, BIG_GIFT_COINS } from '@/components/voiceroom/GiftFly';
+import { RechargeSheet } from '@/components/voiceroom/RechargeSheet';
+import type { GiftDef } from '@/game/gifts';
+import { ApiError } from '@/api/client';
 
 const LANGS = [
   { code: 'zh', label: '中文 🇨🇳' },
@@ -59,9 +66,41 @@ export function WerewolfGame() {
   const [voiceReady, setVoiceReady] = useState(false);
   const [micOn, setMicOn] = useState(false);
   const [interim, setInterim] = useState('');
+  // 礼物经济（复用语聊房）+ ActiveSpeaker
+  const [balance, setBalance] = useState(0);
+  const [earnings, setEarnings] = useState(0);
+  const [liveSpeakers, setLiveSpeakers] = useState<string[]>([]);
+  const [flyItems, setFlyItems] = useState<GiftFlyItem[]>([]);
+  const [bigGift, setBigGift] = useState<GiftFlyItem | null>(null);
+  const [giftPanel, setGiftPanel] = useState(false);
+  const [giftTarget, setGiftTarget] = useState<{ seatNo: number; name: string } | null>(null);
+  const [showRecharge, setShowRecharge] = useState(false);
+  const [rechargeBusy, setRechargeBusy] = useState(false);
   const fxId = useRef(0);
+  const flyId = useRef(0);
+  const comboRef = useRef<{ key: string; id: number; combo: number; ts: number } | null>(null);
   const audioRef = useRef<RoomAudioHandle | null>(null);
   const feedRef = useRef<ScrollView>(null);
+
+  function pushGift(p: WolfGiftPayload) {
+    const key = `${p.fromUserId}:${p.giftType}:${p.toSeat}`;
+    if (comboRef.current && comboRef.current.key === key && p.ts - comboRef.current.ts < 3000) {
+      comboRef.current.combo += 1; comboRef.current.ts = p.ts;
+      const id = comboRef.current.id; const combo = comboRef.current.combo;
+      setFlyItems((prev) => [...prev.filter((x) => x.id !== id), { id, fromName: p.fromName, giftType: p.giftType, coins: p.coins, combo }].slice(-6));
+    } else {
+      const id = ++flyId.current;
+      comboRef.current = { key, id, combo: 1, ts: p.ts };
+      setFlyItems((prev) => [...prev, { id, fromName: p.fromName, giftType: p.giftType, coins: p.coins, combo: 1 }].slice(-6));
+      setTimeout(() => setFlyItems((prev) => prev.filter((x) => x.id !== id)), 4000);
+    }
+    if (p.coins >= BIG_GIFT_COINS) {
+      const bid = ++flyId.current;
+      setBigGift({ id: bid, fromName: p.fromName, giftType: p.giftType, coins: p.coins, combo: 1 });
+      setTimeout(() => setBigGift((cur) => (cur && cur.id === bid ? null : cur)), 2600);
+    }
+  }
+  const refreshWallet = () => { api.wallet().then((w) => { setBalance(w.diamonds); setEarnings(w.earnings); }).catch(() => {}); };
 
   function triggerFx(type: NightFxType) {
     fxId.current += 1;
@@ -94,6 +133,7 @@ export function WerewolfGame() {
     const onSpeech = (p: WolfSpeechPayload) => { if (mine(p.gameId)) { setSpeeches((s) => [...s, p].slice(-80)); scrollFeed(); } };
     const onOver = (p: WolfGameOverPayload) => { if (mine(p.gameId)) { setOver(p); setPrompt(null); } };
     const onFx = (p: WolfFxPayload) => { if (mine(p.gameId)) triggerFx(p.type); };
+    const onGift = (p: WolfGiftPayload) => { if (mine(p.gameId)) { pushGift(p); if (p.toUserId === myId) refreshWallet(); } };
 
     socket.on(WEREWOLF_EVENTS.STATE, onState);
     socket.on(WEREWOLF_EVENTS.ROLE, onRole);
@@ -101,6 +141,7 @@ export function WerewolfGame() {
     socket.on(WEREWOLF_EVENTS.HOST, onHost);
     socket.on(WEREWOLF_EVENTS.SPEECH, onSpeech);
     socket.on(WEREWOLF_EVENTS.FX, onFx);
+    socket.on(WEREWOLF_EVENTS.GIFT, onGift);
     socket.on(WEREWOLF_EVENTS.GAME_OVER, onOver);
     return () => {
       socket.off(WEREWOLF_EVENTS.STATE, onState);
@@ -109,6 +150,7 @@ export function WerewolfGame() {
       socket.off(WEREWOLF_EVENTS.HOST, onHost);
       socket.off(WEREWOLF_EVENTS.SPEECH, onSpeech);
       socket.off(WEREWOLF_EVENTS.FX, onFx);
+      socket.off(WEREWOLF_EVENTS.GIFT, onGift);
       socket.off(WEREWOLF_EVENTS.GAME_OVER, onOver);
     };
   }, [gameId]);
@@ -143,8 +185,9 @@ export function WerewolfGame() {
       if (!id) { const res = await api.wolfCreate(boardKey, lang); id = res.gameId; mediaToken = res.token; }
       else { const res = await api.wolfJoin(id, lang); mediaToken = res.token; }
       setGameId(id);
-      // 进房静音连接（单麦：只在发言轮开麦）
-      connectRoomAudio(mediaToken, { startMuted: true }).then((h) => { audioRef.current = h; setVoiceReady(!!h); }).catch(() => {});
+      // 进房静音连接（单麦：只在发言轮开麦）+ ActiveSpeaker 真实音量
+      connectRoomAudio(mediaToken, { startMuted: true, onActiveSpeakers: setLiveSpeakers }).then((h) => { audioRef.current = h; setVoiceReady(!!h); }).catch(() => {});
+      api.wallet().then((w) => { setBalance(w.diamonds); setEarnings(w.earnings); }).catch(() => {});
     } catch (e) { setError(e instanceof Error ? e.message : '进入失败'); }
     finally { setBusy(false); }
   }
@@ -166,6 +209,26 @@ export function WerewolfGame() {
     const h = audioRef.current;
     if (h) await h.setMicEnabled(next); // 无 LiveKit 时仅切 STT 听写
   };
+  const openGift = (seatNo: number, name: string) => { setGiftTarget({ seatNo, name }); setGiftPanel(true); };
+  const sendGift = async (g: GiftDef) => {
+    if (!gameId) return;
+    setGiftPanel(false);
+    try { const res = await api.wolfGift(gameId, g.type, giftTarget?.seatNo ?? null); setBalance(res.balance); }
+    catch (e) { if (e instanceof ApiError && e.code === 'INSUFFICIENT_DIAMONDS') setShowRecharge(true); }
+  };
+  const onPickPack = async (pack: StarPack) => {
+    if (rechargeBusy) return;
+    setRechargeBusy(true);
+    try {
+      const res = await api.walletRecharge(pack.id);
+      const wa = (typeof window !== 'undefined' ? (window as unknown as { Telegram?: { WebApp?: { openInvoice?: (url: string, cb: (s: string) => void) => void } } }).Telegram?.WebApp : undefined);
+      if (res.mode === 'stars' && res.invoiceLink && wa?.openInvoice) {
+        wa.openInvoice(res.invoiceLink, (status: string) => { if (status === 'paid') { setShowRecharge(false); setTimeout(refreshWallet, 1200); } });
+      } else { const w = await api.walletRechargeDev(pack.id); setBalance(w.diamonds); setShowRecharge(false); }
+    } catch { /* ignore */ }
+    finally { setRechargeBusy(false); }
+  };
+  const withdraw = async () => { if (earnings <= 0) return; try { const w = await api.walletWithdraw(earnings); setBalance(w.diamonds); setEarnings(w.earnings); } catch { /* ignore */ } };
   const leave = async () => {
     audioRef.current?.disconnect(); audioRef.current = null;
     if (gameId) { try { await api.wolfLeave(gameId); } catch { /* ignore */ } }
@@ -207,7 +270,10 @@ export function WerewolfGame() {
 
       <View style={s.headerRow}>
         <Text style={s.phase}>{state ? PHASE_LABEL[state.phase] : '…'}{state && state.day > 0 ? ` · 第${state.day}天` : ''}</Text>
-        <Btn label="离开" variant="ghost" onPress={leave} />
+        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+          <Pressable onPress={() => setShowRecharge(true)} style={s.balanceChip}><Text style={s.balanceText}>💎 {balance}</Text></Pressable>
+          <Btn label="离开" variant="ghost" onPress={leave} />
+        </View>
       </View>
       <Text selectable style={s.idLine}>对局号 {gameId.slice(0, 8)}…{state?.containsAI ? ' · 含 AI 玩家' : ''}</Text>
       <Text style={s.voiceLine}>
@@ -216,17 +282,18 @@ export function WerewolfGame() {
           : (sttSupported ? '🎤 语音听写可用 · 轮到你说话自动转字幕' : '💬 打字模式（浏览器不支持语音识别）')}
       </Text>
 
-      {/* 座位网格（lip-sync 头像 + 发言高亮 + 出局去色） */}
+      {/* 座位网格（lip-sync 头像 + 发言高亮 + 出局去色 + 点击送礼）。说话=回合发言 或 LiveKit 真实音量。 */}
       <View style={s.seatGrid}>
         {state?.seats.map((m) => {
-          const speaking = state.phase === 'speak' && state.currentSpeakerSeat === m.seatNo && m.alive;
+          const turnSpeaking = state.phase === 'speak' && state.currentSpeakerSeat === m.seatNo && m.alive;
+          const speaking = m.alive && (turnSpeaking || (!!m.userId && liveSpeakers.includes(m.userId)));
           const ring = speaking ? wolf.gold : null;
           return (
-            <View key={m.seatNo} style={s.seat}>
+            <Pressable key={m.seatNo} style={s.seat} onPress={() => m.userId && m.userId !== myId && openGift(m.seatNo, m.displayName)}>
               <LipSyncAvatar seed={seedOf(m.seatNo, m.userId)} size={52} talking={speaking} dead={!m.alive} ring={ring} />
               <Text style={s.seatName} numberOfLines={1}>{m.seatNo}号{m.userId === myId ? '·你' : ''}</Text>
               <Text style={s.seatState}>{m.alive ? (speaking ? '🎙' : '在场') : '💀'}</Text>
-            </View>
+            </Pressable>
           );
         })}
       </View>
@@ -323,6 +390,11 @@ export function WerewolfGame() {
           <Btn label="再来一局" variant="primary" onPress={leave} style={{ marginTop: 8 }} />
         </View>
       )}
+
+      {/* 礼物飘屏 + 面板 + 钱包（复用语聊房） */}
+      <GiftFly items={flyItems} big={bigGift} />
+      <GiftPanel visible={giftPanel} balance={balance} targetName={giftTarget?.name ?? '全场'} onClose={() => setGiftPanel(false)} onSend={sendGift} />
+      <RechargeSheet visible={showRecharge} balance={balance} earnings={earnings} busy={rechargeBusy} onClose={() => setShowRecharge(false)} onPick={onPickPack} onWithdraw={withdraw} />
     </View>
   );
 }
@@ -352,6 +424,8 @@ const s = StyleSheet.create({
   hint: { color: 'rgba(255,255,255,0.55)', fontSize: 12, marginTop: 16, lineHeight: 18 },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 44 },
   phase: { color: '#fff', fontSize: 18, fontWeight: '900' },
+  balanceChip: { backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 8 },
+  balanceText: { color: wolf.gold, fontWeight: '800', fontSize: 13 },
   idLine: { color: 'rgba(255,255,255,0.5)', fontSize: 12, paddingHorizontal: 16 },
   voiceLine: { color: wolf.gold, fontSize: 12, paddingHorizontal: 16, marginBottom: 4 },
   seatGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingHorizontal: 16, paddingVertical: 8, justifyContent: 'center' },

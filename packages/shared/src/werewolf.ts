@@ -11,8 +11,22 @@ export const WEREWOLF_EVENTS = {
   HOST: 'wolf.host', // AI 主持旁白（按接收者母语本地化）
   SPEECH: 'wolf.speech', // 发言字幕（发言者母语→接收者母语，身份盲翻译）
   FX: 'wolf.fx', // 夜间技能特效（后端按可见性下发：狼→狼队、预言家→本人、女巫→本人、猎人→全场）
+  GIFT: 'wolf.gift', // 送礼（复用语聊房礼物）：广播全场 → 飘屏 + 受赠方收益
   GAME_OVER: 'wolf.game_over', // 结算 + 全角色/AI 揭示
 } as const;
+
+// 送礼（复用语聊房礼物目录与定价）。toSeat=受赠座位（null=送全场/不指定）。
+export interface WolfGiftBody { giftType: string; toSeat?: number | null }
+export interface WolfGiftPayload {
+  gameId: string;
+  fromUserId: string;
+  fromName: string;
+  giftType: string;
+  coins: number;
+  toSeat: number | null;
+  toUserId: string | null;
+  ts: number;
+}
 
 // 夜间特效类型（与前端 NightFx 对应）。后端只发给"有权看到"的人，保证不泄密。
 export type WolfFxType = 'wolf' | 'heal' | 'seer' | 'poison' | 'hunter';

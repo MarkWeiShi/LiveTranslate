@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import {
   WEREWOLF_EVENTS,
   WEREWOLF_BOARDS,
@@ -18,12 +18,16 @@ import {
   type WolfJoinResponse,
   type WolfFxType,
   type WolfFxPayload,
+  type WolfGiftPayload,
+  ROOM_GIFT_PRICE,
+  GIFT_EARN_RATE,
 } from '@linku/shared';
 import { MEDIA_TRANSPORT, TRANSLATION_ENGINE } from '../config/provider.tokens';
 import type { MediaTransport } from '../adapters/media/media-transport.interface';
 import type { TranslationEngine } from '../adapters/translation/translation-engine.interface';
 import { RealtimeEmitter } from '../realtime/realtime.emitter';
 import { PrismaService } from '../prisma/prisma.service';
+import { WalletService } from '../wallet/wallet.service';
 import { ROLE_CAMP, roleText, host, notice, aiLine, type HostKey } from './roles';
 
 // 阶段时长（ms）。纯 AI 步骤瞬时结算（无真人需等待）。
@@ -93,7 +97,49 @@ export class WerewolfService {
     @Inject(TRANSLATION_ENGINE) private engine: TranslationEngine,
     private emitter: RealtimeEmitter,
     private prisma: PrismaService,
+    private wallet: WalletService,
   ) {}
+
+  // ---------------- 送礼（复用语聊房礼物经济）----------------
+
+  /** 送礼：服务端定价 → 扣发送者钻石（不足 402）→ 受赠方收益入账 → 广播全场飘屏。 */
+  async gift(gameId: string, fromUserId: string, giftType: string, toSeat?: number | null): Promise<{ ok: true; balance: number }> {
+    const game = this.must(gameId);
+    const from = this.seatOf(game, fromUserId);
+    if (!from) throw new BadRequestException({ code: 'NOT_IN_GAME' });
+    const coins = ROOM_GIFT_PRICE[giftType];
+    if (coins == null) throw new BadRequestException({ code: 'UNKNOWN_GIFT' });
+
+    let balance: number;
+    try {
+      const w = await this.wallet.deductDiamonds(fromUserId, coins);
+      balance = w.diamonds;
+    } catch (e) {
+      if ((e as { code?: string })?.code === 'INSUFFICIENT_DIAMONDS') {
+        throw new HttpException({ code: 'INSUFFICIENT_DIAMONDS', message: '钻石不足，请充值' }, HttpStatus.PAYMENT_REQUIRED);
+      }
+      throw e;
+    }
+
+    const seat = typeof toSeat === 'number' ? game.seats[toSeat] : null;
+    const toUserId = seat?.userId ?? null;
+    if (toUserId && toUserId !== fromUserId) {
+      await this.wallet.creditEarnings(toUserId, Math.floor(coins * GIFT_EARN_RATE));
+    }
+
+    const payload: WolfGiftPayload = {
+      gameId,
+      fromUserId,
+      fromName: from.displayName,
+      giftType,
+      coins,
+      toSeat: typeof toSeat === 'number' ? toSeat : null,
+      toUserId,
+      ts: Date.now(),
+    };
+    this.emitToAll(game, WEREWOLF_EVENTS.GIFT, payload);
+    return { ok: true, balance };
+  }
 
   // ---------------- 大厅 / 加入 ----------------
 
