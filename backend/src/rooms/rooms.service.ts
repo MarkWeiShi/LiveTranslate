@@ -22,6 +22,7 @@ import {
   type RoomMicRequestsPayload,
   NUM_SEATS,
   ROOM_GIFT_PRICE,
+  type MicMode,
 } from '@linku/shared';
 import { QUIZ_BANK, localizedQuestion } from './quiz-bank';
 import { MEDIA_TRANSPORT, TRANSLATION_ENGINE } from '../config/provider.tokens';
@@ -57,6 +58,7 @@ interface RoomState {
   hostId: string | null;
   seats: SeatSlot[]; // 长度 NUM_SEATS；0=房主
   micRequests: Map<string, number | null>; // userId -> 申请的座位号（null=任意空位）
+  micMode: MicMode; // free=点位即上麦；approval=需房主同意
 }
 
 @Injectable()
@@ -86,6 +88,7 @@ export class RoomsService {
       hostId: null,
       seats: Array.from({ length: NUM_SEATS }, () => ({ userId: null, locked: false, muted: false })),
       micRequests: new Map(),
+      micMode: 'free',
     });
     const token = await this.media.mintToken(userId, handle.room);
     return { roomId: id, room: handle.room, token };
@@ -168,14 +171,44 @@ export class RoomsService {
 
   // ---------- 座位制：上麦申请 / 审批 / 下麦 / 房主管理 ----------
 
-  /** 申请上麦：加入待审批列表（可指定座位号）。房主自己无需申请。 */
+  /** 上麦：free 模式点位即上麦；approval 模式进待审批列表。指定锁定座位会被拒。 */
   applyMic(roomId: string, userId: string, seatIndex?: number | null): { ok: true } {
     const room = this.must(roomId);
     if (!room.members.has(userId)) throw new BadRequestException({ code: 'NOT_IN_ROOM' });
     if (room.seats.some((s) => s.userId === userId)) return { ok: true }; // 已在麦上
     const target = typeof seatIndex === 'number' && seatIndex >= 1 && seatIndex < NUM_SEATS ? seatIndex : null;
+    if (target !== null && room.seats[target].locked) throw new BadRequestException({ code: 'SEAT_LOCKED' });
+    if (room.micMode === 'free') {
+      const idx = this.pickSeat(room, target);
+      if (idx < 0) throw new BadRequestException({ code: 'NO_FREE_SEAT' });
+      room.seats[idx].userId = userId;
+      room.micRequests.delete(userId);
+      this.broadcastSeats(room);
+      return { ok: true };
+    }
     room.micRequests.set(userId, target);
     this.broadcastRequests(room);
+    return { ok: true };
+  }
+
+  /** 房主：切换自由/审批上麦模式。 */
+  setMicMode(roomId: string, actingId: string, mode: MicMode): { ok: true } {
+    const room = this.must(roomId);
+    if (room.hostId !== actingId) throw new BadRequestException({ code: 'NOT_HOST' });
+    room.micMode = mode;
+    this.broadcastSeats(room);
+    return { ok: true };
+  }
+
+  /** 房主：锁定/解锁麦位（锁定会清空该位、禁止上麦；不可锁 0 号）。 */
+  lockSeat(roomId: string, actingId: string, seatIndex: number, locked: boolean): { ok: true } {
+    const room = this.must(roomId);
+    if (room.hostId !== actingId) throw new BadRequestException({ code: 'NOT_HOST' });
+    if (seatIndex > 0 && seatIndex < NUM_SEATS) {
+      if (locked) room.seats[seatIndex] = { userId: null, locked: true, muted: false };
+      else room.seats[seatIndex].locked = false;
+      this.broadcastSeats(room);
+    }
     return { ok: true };
   }
 
@@ -258,6 +291,7 @@ export class RoomsService {
       seats: this.seatDtos(room),
       audienceCount: Math.max(0, room.members.size - occupied),
       hostId: room.hostId,
+      micMode: room.micMode,
     };
     this.emitter.emitToUsers([...room.members.keys()], ROOM_EVENTS.SEATS, payload);
   }

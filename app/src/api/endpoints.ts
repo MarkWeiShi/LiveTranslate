@@ -78,6 +78,10 @@ export const api = {
     apiFetch<{ ok: true }>('POST', `/rooms/${id}/mic/mute`, { seatIndex, muted }),
   micKick: (id: string, seatIndex: number) =>
     apiFetch<{ ok: true }>('POST', `/rooms/${id}/mic/kick`, { seatIndex }),
+  micSetMode: (id: string, mode: 'free' | 'approval') =>
+    apiFetch<{ ok: true }>('POST', `/rooms/${id}/mic/mode`, { mode }),
+  micLock: (id: string, seatIndex: number, locked: boolean) =>
+    apiFetch<{ ok: true }>('POST', `/rooms/${id}/mic/lock`, { seatIndex, locked }),
   // 跨语言狼人杀
   wolfCreate: (boardKey: string, language: string) =>
     apiFetch<WolfCreateResponse>('POST', '/werewolf', { boardKey, language }),

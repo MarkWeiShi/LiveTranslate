@@ -1,4 +1,4 @@
-import { IsBoolean, IsInt, IsOptional, IsString, MaxLength, Min, MinLength } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, MaxLength, Min, MinLength } from 'class-validator';
 
 export class GiftDto {
   @IsString() @MinLength(1) @MaxLength(40) giftType!: string;
@@ -17,6 +17,15 @@ export class MicDecisionDto {
 export class SeatTargetDto {
   @IsInt() @Min(0) seatIndex!: number;
   @IsOptional() @IsBoolean() muted?: boolean;
+}
+
+export class SetMicModeDto {
+  @IsIn(['free', 'approval']) mode!: 'free' | 'approval';
+}
+
+export class LockSeatDto {
+  @IsInt() @Min(0) seatIndex!: number;
+  @IsBoolean() locked!: boolean;
 }
 
 export class JoinRoomDto {

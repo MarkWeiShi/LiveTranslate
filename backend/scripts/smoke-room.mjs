@@ -120,20 +120,35 @@ async function main() {
   const [rqA] = await Promise.all([resQA, resQB]);
   ok('PK：结算 A 胜（20 分）', rqA.v?.winner?.userId === aId && rqA.v?.winner?.score === 20, rqA.err ?? `winner=${rqA.v?.winner?.displayName} score=${rqA.v?.winner?.score}`);
 
-  // ---- 座位制：上麦申请 → 房主审批 ----
-  const reqP = safe(waitFor(sa, 'room.mic_requests', { predicate: (p) => p.requests.some((r) => r.userId === bId) }));
+  // ---- 座位制：自由上麦（默认 free）----
+  const freeSeatP = safe(waitFor(sb, 'room.seats', { predicate: (p) => p.seats.some((s) => s.userId === bId) }));
   await req('POST', `/rooms/${roomId}/mic/apply`, { token: bTok, body: { seatIndex: 2 } });
+  const freeSeats = await freeSeatP;
+  ok('座位：free 模式点 2 号即上麦（无需审批）', freeSeats.v?.seats?.find((s) => s.userId === bId)?.index === 2 && freeSeats.v?.micMode === 'free', `mode=${freeSeats.v?.micMode}`);
+  ok('座位：A 是房主占 0 号麦', freeSeats.v?.seats?.[0]?.userId === aId && freeSeats.v?.hostId === aId, `host=${freeSeats.v?.hostId}`);
+
+  // ---- 切到审批模式：申请 → 房主同意 ----
+  await req('POST', `/rooms/${roomId}/mic/mode`, { token: aTok, body: { mode: 'approval' } });
+  await req('POST', `/rooms/${roomId}/mic/leave`, { token: bTok }); // B 先下麦
+  const reqP = safe(waitFor(sa, 'room.mic_requests', { predicate: (p) => p.requests.some((r) => r.userId === bId) }));
+  await req('POST', `/rooms/${roomId}/mic/apply`, { token: bTok, body: { seatIndex: 3 } });
   const reqs = await reqP;
-  ok('座位：房主收到 B 的上麦申请（想坐2号）', reqs.v?.requests?.some((r) => r.userId === bId && r.seatIndex === 2), reqs.err ?? `reqs=${JSON.stringify(reqs.v?.requests)}`);
+  ok('座位：approval 模式房主收到 B 申请（想坐3号）', reqs.v?.requests?.some((r) => r.userId === bId && r.seatIndex === 3), reqs.err ?? `reqs=${JSON.stringify(reqs.v?.requests)}`);
   const seatsP = safe(waitFor(sb, 'room.seats', { predicate: (p) => p.seats.some((s) => s.userId === bId) }));
-  await req('POST', `/rooms/${roomId}/mic/approve`, { token: aTok, body: { userId: bId, seatIndex: 2 } });
+  await req('POST', `/rooms/${roomId}/mic/approve`, { token: aTok, body: { userId: bId, seatIndex: 3 } });
   const seatsAfter = await seatsP;
-  const bSeat = seatsAfter.v?.seats?.find((s) => s.userId === bId);
-  ok('座位：A 同意后 B 坐到 2 号麦', bSeat?.index === 2, seatsAfter.err ?? `seat=${bSeat?.index}`);
-  ok('座位：A 是房主占 0 号麦', seatsAfter.v?.seats?.[0]?.userId === aId && seatsAfter.v?.hostId === aId, `host=${seatsAfter.v?.hostId}`);
-  // 非房主审批应被拒
+  ok('座位：A 同意后 B 坐到 3 号麦', seatsAfter.v?.seats?.find((s) => s.userId === bId)?.index === 3, seatsAfter.err ?? '');
   const badApprove = await req('POST', `/rooms/${roomId}/mic/approve`, { token: bTok, body: { userId: aId } });
   ok('座位：非房主审批被拒（NOT_HOST）', badApprove.status >= 400 && badApprove.json?.code === 'NOT_HOST', `status=${badApprove.status}`);
+
+  // ---- 锁麦位：锁 5 号 → 申请被拒 SEAT_LOCKED ----
+  const lockP = safe(waitFor(sb, 'room.seats', { predicate: (p) => p.seats[5]?.locked === true }));
+  await req('POST', `/rooms/${roomId}/mic/lock`, { token: aTok, body: { seatIndex: 5, locked: true } });
+  const lockSeats = await lockP;
+  ok('座位：房主锁定 5 号麦', lockSeats.v?.seats?.[5]?.locked === true, lockSeats.err ?? '');
+  await req('POST', `/rooms/${roomId}/mic/leave`, { token: bTok }); // B 先下麦再申请锁定位
+  const lockedApply = await req('POST', `/rooms/${roomId}/mic/apply`, { token: bTok, body: { seatIndex: 5 } });
+  ok('座位：申请锁定麦位被拒（SEAT_LOCKED）', lockedApply.status >= 400 && lockedApply.json?.code === 'SEAT_LOCKED', `status=${lockedApply.status} code=${lockedApply.json?.code}`);
 
   // ---- 送礼扣费 + Telegram Stars（dev 入账）----
   const before = (await req('GET', '/wallet', { token: aTok })).json?.diamonds ?? 0;

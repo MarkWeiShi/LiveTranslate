@@ -57,6 +57,7 @@ export default function BabelRoomScreen() {
   const [members, setMembers] = useState<RoomMemberDto[]>([]);
   const [seats, setSeats] = useState<SeatDto[]>([]);
   const [hostId, setHostId] = useState<string | null>(null);
+  const [micMode, setMicMode] = useState<'free' | 'approval'>('free');
   const [audienceCount, setAudienceCount] = useState(0);
   const [micRequests, setMicRequests] = useState<MicRequestEntry[]>([]);
   const [showRequests, setShowRequests] = useState(false);
@@ -146,7 +147,7 @@ export default function BabelRoomScreen() {
     const onQuizQ = (p: QuizQuestionPayload) => { if (p.roomId === roomId) { setQuizQ(p); setQuizResult(null); setAnswered(false); } };
     const onQuizR = (p: QuizResultPayload) => { if (p.roomId === roomId) { setQuizResult(p); setQuizQ(null); } };
     const onGift = (p: RoomGiftPayload) => { if (p.roomId === roomId) pushGift(p); };
-    const onSeats = (p: RoomSeatsPayload) => { if (p.roomId === roomId) { setSeats(p.seats); setAudienceCount(p.audienceCount); setHostId(p.hostId); } };
+    const onSeats = (p: RoomSeatsPayload) => { if (p.roomId === roomId) { setSeats(p.seats); setAudienceCount(p.audienceCount); setHostId(p.hostId); setMicMode(p.micMode); } };
     const onMicReqs = (p: RoomMicRequestsPayload) => { if (p.roomId === roomId) setMicRequests(p.requests); };
 
     socket.on(ROOM_EVENTS.CAPTION, onCaption);
@@ -231,10 +232,16 @@ export default function BabelRoomScreen() {
     finally { setRechargeBusy(false); }
   };
   const onSeatPress = (seat: SeatDto) => {
-    if (!seat.userId) { if (seat.index >= 1 && roomId) api.micApply(roomId, seat.index).catch(() => {}); return; }
+    // 房主：点任意非自己麦位 → 管理面板（空位可锁/解锁，有人可送礼/静音/抱下麦/锁）
     if (isHost && !seat.isHost && seat.userId !== myId) { setSeatAction(seat); return; }
+    if (!seat.userId) {
+      if (seat.index >= 1 && !seat.locked && roomId) api.micApply(roomId, seat.index).catch(() => {});
+      return;
+    }
     setGiftTarget({ userId: seat.userId, displayName: seat.displayName ?? '' }); setGiftPanel(true);
   };
+  const toggleMode = async () => { if (roomId) try { await api.micSetMode(roomId, micMode === 'free' ? 'approval' : 'free'); } catch { /* ignore */ } };
+  const lock = async (seatIndex: number, locked: boolean) => { if (roomId) try { await api.micLock(roomId, seatIndex, locked); } catch { /* ignore */ } };
   const openGift = () => { const h = seats[0]; setGiftTarget(h?.userId ? { userId: h.userId, displayName: h.displayName ?? '' } : null); setGiftPanel(true); };
   const leave = async () => { audioRef.current?.disconnect(); audioRef.current = null; if (roomId) { try { await api.leaveRoom(roomId); } catch { /* ignore */ } } router.back(); };
 
@@ -270,9 +277,16 @@ export default function BabelRoomScreen() {
           <Text style={s.roomMeta}>在线 {members.length} · 听众 {audienceCount} · {audioOn ? '🎧' : ENV.transport === 'livekit' ? '语音未连' : '💬'}</Text>
         </View>
         {isHost && (
-          <Pressable onPress={() => setShowRequests(true)} style={s.reqBtn}>
-            <Text style={s.reqText}>上麦{micRequests.length > 0 ? ` ·${micRequests.length}` : ''}</Text>
-          </Pressable>
+          <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+            <Pressable onPress={toggleMode} style={s.modeBtn}>
+              <Text style={s.modeText}>{micMode === 'free' ? '自由上麦' : '审批上麦'}</Text>
+            </Pressable>
+            {micMode === 'approval' && (
+              <Pressable onPress={() => setShowRequests(true)} style={s.reqBtn}>
+                <Text style={s.reqText}>申请{micRequests.length > 0 ? ` ·${micRequests.length}` : ''}</Text>
+              </Pressable>
+            )}
+          </View>
         )}
       </View>
 
@@ -290,6 +304,7 @@ export default function BabelRoomScreen() {
             member={seatMember(seat)}
             isMe={seat.userId === myId}
             muted={seat.muted}
+            locked={seat.locked}
             speaking={isSpeaking(seat.userId)}
             charm={seat.userId ? charm[seat.userId] ?? 0 : 0}
             onPress={() => onSeatPress(seat)}
@@ -379,15 +394,20 @@ export default function BabelRoomScreen() {
         </View>
       )}
 
-      {/* 房主：麦位管理 */}
+      {/* 房主：麦位管理（空位可锁/解锁；有人可送礼/静音/抱下麦/锁麦位） */}
       {seatAction && (
         <View style={StyleSheet.absoluteFill}>
           <Pressable style={s.scrim} onPress={() => setSeatAction(null)} />
           <View style={s.sheet}>
-            <Text style={s.sheetTitle}>{seatAction.displayName} · {seatAction.index} 号麦</Text>
-            <Btn label="🎁 送礼" variant="primary" onPress={() => { setGiftTarget({ userId: seatAction.userId!, displayName: seatAction.displayName ?? '' }); setSeatAction(null); setGiftPanel(true); }} />
-            <Btn label={seatAction.muted ? '🔊 取消静音' : '🔇 静音'} variant="ghost" onPress={() => { if (roomId) api.micMute(roomId, seatAction.index, !seatAction.muted).catch(() => {}); setSeatAction(null); }} />
-            <Btn label="⬇️ 抱下麦" variant="ghost" onPress={() => { if (roomId) api.micKick(roomId, seatAction.index).catch(() => {}); setSeatAction(null); }} />
+            <Text style={s.sheetTitle}>{seatAction.userId ? `${seatAction.displayName} · ${seatAction.index} 号麦` : `${seatAction.index} 号麦（${seatAction.locked ? '已锁定' : '空闲'}）`}</Text>
+            {seatAction.userId && (
+              <>
+                <Btn label="🎁 送礼" variant="primary" onPress={() => { setGiftTarget({ userId: seatAction.userId!, displayName: seatAction.displayName ?? '' }); setSeatAction(null); setGiftPanel(true); }} />
+                <Btn label={seatAction.muted ? '🔊 取消静音' : '🔇 静音'} variant="ghost" onPress={() => { if (roomId) api.micMute(roomId, seatAction.index, !seatAction.muted).catch(() => {}); setSeatAction(null); }} />
+                <Btn label="⬇️ 抱下麦" variant="ghost" onPress={() => { if (roomId) api.micKick(roomId, seatAction.index).catch(() => {}); setSeatAction(null); }} />
+              </>
+            )}
+            <Btn label={seatAction.locked ? '🔓 解锁麦位' : '🔒 锁定麦位'} variant="ghost" onPress={() => { lock(seatAction.index, !seatAction.locked); setSeatAction(null); }} />
             <Btn label="关闭" variant="ghost" onPress={() => setSeatAction(null)} />
           </View>
         </View>
@@ -427,6 +447,8 @@ const s = StyleSheet.create({
   roomMeta: { color: 'rgba(255,255,255,0.55)', fontSize: 11 },
   reqBtn: { backgroundColor: wolf.gold, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 7 },
   reqText: { color: '#1a1614', fontWeight: '800', fontSize: 12 },
+  modeBtn: { backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 7, borderWidth: 1, borderColor: wolf.border },
+  modeText: { color: '#fff', fontWeight: '700', fontSize: 12 },
   scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
   sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: '#17131a', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 16, gap: 10, borderTopWidth: 1, borderColor: wolf.border },
   sheetTitle: { color: '#fff', fontWeight: '800', fontSize: 15 },

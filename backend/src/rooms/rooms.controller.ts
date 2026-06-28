@@ -7,9 +7,11 @@ import {
   BarrageDto,
   GiftDto,
   JoinRoomDto,
+  LockSeatDto,
   MicDecisionDto,
   QuizAnswerDto,
   SeatTargetDto,
+  SetMicModeDto,
   TelephonePassDto,
   TelephoneStartDto,
   UtteranceDto,
@@ -116,5 +118,15 @@ export class RoomsController {
   @Post(':id/mic/kick')
   kickSeat(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() body: SeatTargetDto) {
     return this.rooms.kickSeat(id, u.userId, body.seatIndex);
+  }
+
+  @Post(':id/mic/mode')
+  setMicMode(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() body: SetMicModeDto) {
+    return this.rooms.setMicMode(id, u.userId, body.mode);
+  }
+
+  @Post(':id/mic/lock')
+  lockSeat(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() body: LockSeatDto) {
+    return this.rooms.lockSeat(id, u.userId, body.seatIndex, body.locked);
   }
 }

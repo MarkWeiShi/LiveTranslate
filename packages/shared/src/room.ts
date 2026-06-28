@@ -18,8 +18,9 @@ export const ROOM_EVENTS = {
   MIC_REQUESTS: 'room.mic_requests', // 上麦申请列表：仅发给房主
 } as const;
 
-// ---------- 座位制（speaker/audience + 上麦审批）----------
+// ---------- 座位制（speaker/audience + 上麦审批/自由 + 锁麦位）----------
 export const NUM_SEATS = 9; // 0=房主，1..8 普通麦位
+export type MicMode = 'free' | 'approval'; // free=点位即上麦；approval=需房主同意
 export interface SeatDto {
   index: number;
   userId: string | null;
@@ -34,12 +35,15 @@ export interface RoomSeatsPayload {
   seats: SeatDto[];
   audienceCount: number;
   hostId: string | null;
+  micMode: MicMode;
 }
 export interface MicRequestEntry { userId: string; displayName: string; seatIndex: number | null }
 export interface RoomMicRequestsPayload { roomId: string; requests: MicRequestEntry[] }
 export interface ApplyMicBody { seatIndex?: number | null }
 export interface MicDecisionBody { userId: string; seatIndex?: number | null }
 export interface SeatTargetBody { seatIndex: number; muted?: boolean }
+export interface SetMicModeBody { mode: MicMode }
+export interface LockSeatBody { seatIndex: number; locked: boolean }
 
 export interface RoomMemberDto {
   userId: string;

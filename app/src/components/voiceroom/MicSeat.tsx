@@ -12,11 +12,12 @@ interface Props {
   isMe?: boolean;
   speaking?: boolean;
   muted?: boolean;
+  locked?: boolean;
   charm?: number;
   onPress?: () => void;
 }
 
-export function MicSeat({ seatNo, member, isHost, isMe, speaking, muted, charm = 0, onPress }: Props) {
+export function MicSeat({ seatNo, member, isHost, isMe, speaking, muted, locked, charm = 0, onPress }: Props) {
   const size = isHost ? 64 : 52;
   const ring = isHost ? wolf.gold : speaking ? colors.online : 'rgba(255,255,255,0.15)';
   const occupied = !!member;
@@ -40,8 +41,8 @@ export function MicSeat({ seatNo, member, isHost, isMe, speaking, muted, charm =
             <Image source={{ uri: avatarUrl(member!.userId ?? `seat-${seatNo}`) }} style={styles.img} />
           </View>
         ) : (
-          <View style={[styles.empty, { width: size, height: size, borderRadius: size / 2 }]}>
-            <Text style={styles.plus}>＋</Text>
+          <View style={[styles.empty, { width: size, height: size, borderRadius: size / 2 }, locked && { borderStyle: 'solid', borderColor: 'rgba(255,255,255,0.12)' }]}>
+            <Text style={styles.plus}>{locked ? '🔒' : '＋'}</Text>
           </View>
         )}
         {/* 静音角标 */}
@@ -51,7 +52,7 @@ export function MicSeat({ seatNo, member, isHost, isMe, speaking, muted, charm =
       </View>
 
       <Text style={styles.name} numberOfLines={1}>
-        {occupied ? `${member!.displayName}${isMe ? '·我' : ''}` : `${seatNo} 号`}
+        {occupied ? `${member!.displayName}${isMe ? '·我' : ''}` : locked ? '已锁' : `${seatNo} 号`}
       </Text>
       {occupied && (
         <Text style={styles.charm}>💎 {charm}</Text>
