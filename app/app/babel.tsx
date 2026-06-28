@@ -28,7 +28,10 @@ import { colors, radius, wolf } from '@/theme';
 import { MicSeat, type SeatMember } from '@/components/voiceroom/MicSeat';
 import { GiftPanel } from '@/components/voiceroom/GiftPanel';
 import { GiftFly, type GiftFlyItem, BIG_GIFT_COINS } from '@/components/voiceroom/GiftFly';
+import { RechargeSheet } from '@/components/voiceroom/RechargeSheet';
 import type { GiftDef } from '@/game/gifts';
+import type { StarPack } from '@linku/shared';
+import { ApiError } from '@/api/client';
 
 const LANGS = [
   { code: 'zh', label: '中文 🇨🇳' },
@@ -77,6 +80,8 @@ export default function BabelRoomScreen() {
   const [giftPanel, setGiftPanel] = useState(false);
   const [giftTarget, setGiftTarget] = useState<{ userId: string; displayName: string } | null>(null);
   const [balance, setBalance] = useState(0);
+  const [showRecharge, setShowRecharge] = useState(false);
+  const [rechargeBusy, setRechargeBusy] = useState(false);
   const [showGames, setShowGames] = useState(false);
   const [showInput, setShowInput] = useState(false);
 
@@ -195,7 +200,36 @@ export default function BabelRoomScreen() {
   const passTel = async () => { if (!roomId || !telTurn) return; const t = passText.trim() || telTurn.heardText; setPassText(''); try { await api.telephonePass(roomId, telTurn.gameId, t); setTelTurn(null); } catch { /* ignore */ } };
   const startQuiz = async () => { if (!roomId) return; try { await api.quizStart(roomId); } catch (e) { setError(e instanceof Error ? e.message : ''); } };
   const answerQuiz = async (choice: number) => { if (!roomId || !quizQ || answered) return; setAnswered(true); try { await api.quizAnswer(roomId, quizQ.questionId, choice); } catch { /* ignore */ } };
-  const sendGift = async (g: GiftDef) => { if (!roomId) return; setGiftPanel(false); try { await api.roomGift(roomId, g.type, g.coins, giftTarget?.userId ?? null); } catch { /* ignore */ } };
+  const sendGift = async (g: GiftDef) => {
+    if (!roomId) return;
+    setGiftPanel(false);
+    try {
+      const res = await api.roomGift(roomId, g.type, giftTarget?.userId ?? null);
+      setBalance(res.balance);
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'INSUFFICIENT_DIAMONDS') setShowRecharge(true);
+    }
+  };
+  const refreshWallet = () => { api.wallet().then((w) => setBalance(w.diamonds)).catch(() => {}); };
+  const onPickPack = async (pack: StarPack) => {
+    if (rechargeBusy) return;
+    setRechargeBusy(true);
+    try {
+      const res = await api.walletRecharge(pack.id);
+      const wa = (typeof window !== 'undefined' ? (window as unknown as { Telegram?: { WebApp?: { openInvoice?: (url: string, cb: (status: string) => void) => void } } }).Telegram?.WebApp : undefined);
+      if (res.mode === 'stars' && res.invoiceLink && wa?.openInvoice) {
+        wa.openInvoice(res.invoiceLink, (status: string) => {
+          if (status === 'paid') { setShowRecharge(false); setTimeout(refreshWallet, 1200); }
+        });
+      } else {
+        // 非 Telegram / 无发票 → dev 入账
+        const w = await api.walletRechargeDev(pack.id);
+        setBalance(w.diamonds);
+        setShowRecharge(false);
+      }
+    } catch { /* ignore */ }
+    finally { setRechargeBusy(false); }
+  };
   const onSeatPress = (seat: SeatDto) => {
     if (!seat.userId) { if (seat.index >= 1 && roomId) api.micApply(roomId, seat.index).catch(() => {}); return; }
     if (isHost && !seat.isHost && seat.userId !== myId) { setSeatAction(seat); return; }
@@ -320,6 +354,7 @@ export default function BabelRoomScreen() {
       <View style={s.bottomBar}>
         <BarBtn label={onMic ? '🎙' : '🙋'} active={onMic} onPress={toggleMic} />
         <Pressable style={s.fakeInput} onPress={() => setShowInput((v) => !v)}><Text style={s.fakeInputText}>{onMic ? '在麦上 · 点击下麦或说话' : '说点什么…'}</Text></Pressable>
+        <Pressable onPress={() => setShowRecharge(true)} style={s.balanceChip}><Text style={s.balanceText}>💎 {balance}</Text></Pressable>
         <BarBtn label="🎮" active={showGames} onPress={() => setShowGames((v) => !v)} />
         <BarBtn label="🎁" onPress={openGift} accent />
       </View>
@@ -360,6 +395,9 @@ export default function BabelRoomScreen() {
 
       {/* 礼物面板 */}
       <GiftPanel visible={giftPanel} balance={balance} targetName={giftTarget?.displayName ?? '全场'} onClose={() => setGiftPanel(false)} onSend={sendGift} />
+
+      {/* 充值面板 */}
+      <RechargeSheet visible={showRecharge} balance={balance} busy={rechargeBusy} onClose={() => setShowRecharge(false)} onPick={onPickPack} />
     </View>
   );
 }
@@ -409,6 +447,8 @@ const s = StyleSheet.create({
   bottomBar: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 10, paddingBottom: 22 },
   barBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: PANEL, alignItems: 'center', justifyContent: 'center' },
   barIcon: { fontSize: 20 },
+  balanceChip: { height: 44, borderRadius: 22, backgroundColor: PANEL, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
+  balanceText: { color: wolf.gold, fontWeight: '800', fontSize: 13 },
   fakeInput: { flex: 1, height: 40, borderRadius: 20, backgroundColor: PANEL, justifyContent: 'center', paddingHorizontal: 16 },
   fakeInputText: { color: 'rgba(255,255,255,0.45)', fontSize: 14 },
   sendRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },

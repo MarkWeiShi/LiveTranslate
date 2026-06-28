@@ -2,7 +2,6 @@ import { IsBoolean, IsInt, IsOptional, IsString, MaxLength, Min, MinLength } fro
 
 export class GiftDto {
   @IsString() @MinLength(1) @MaxLength(40) giftType!: string;
-  @IsInt() @Min(0) coins!: number;
   @IsOptional() @IsString() toUserId?: string | null;
 }
 

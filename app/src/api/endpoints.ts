@@ -25,6 +25,7 @@ import type {
   SendGiftResponse,
   UserCard,
   WalletDto,
+  RechargeResponse,
 } from '@linku/shared';
 import { apiFetch } from './client';
 
@@ -63,8 +64,8 @@ export const api = {
   quizStart: (id: string) => apiFetch<{ quizId: string }>('POST', `/rooms/${id}/quiz/start`),
   quizAnswer: (id: string, questionId: string, choice: number) =>
     apiFetch<{ ok: true }>('POST', `/rooms/${id}/quiz/answer`, { questionId, choice }),
-  roomGift: (id: string, giftType: string, coins: number, toUserId?: string | null) =>
-    apiFetch<{ ok: true }>('POST', `/rooms/${id}/gift`, { giftType, coins, toUserId }),
+  roomGift: (id: string, giftType: string, toUserId?: string | null) =>
+    apiFetch<{ ok: true; balance: number }>('POST', `/rooms/${id}/gift`, { giftType, toUserId }),
   // 座位制
   micApply: (id: string, seatIndex?: number | null) =>
     apiFetch<{ ok: true }>('POST', `/rooms/${id}/mic/apply`, { seatIndex }),
@@ -94,6 +95,11 @@ export const api = {
   wolfVote: (id: string, targetSeat: number | null) =>
     apiFetch<{ ok: true }>('POST', `/werewolf/${id}/vote`, { targetSeat }),
   wolfLeave: (id: string) => apiFetch<void>('POST', `/werewolf/${id}/leave`),
+  // 充值（Telegram Stars / dev mock）
+  walletRecharge: (packId: string) =>
+    apiFetch<RechargeResponse>('POST', '/wallet/recharge', { packId }),
+  walletRechargeDev: (packId: string) =>
+    apiFetch<WalletDto>('POST', '/wallet/recharge/dev', { packId }),
   // 成长体系
   growthMe: () => apiFetch<GrowthProfileDto>('GET', '/growth/me'),
   growthAward: (amount: number, reason?: string) =>

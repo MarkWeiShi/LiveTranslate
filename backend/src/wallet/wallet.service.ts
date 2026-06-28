@@ -1,5 +1,6 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { DEFAULT_TRIAL_SECONDS, type WalletDto } from '@linku/shared';
+import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
+import { DEFAULT_TRIAL_SECONDS, STAR_PACKS, type WalletDto, type RechargeResponse } from '@linku/shared';
+import { createStarsInvoiceLink } from './telegram-pay';
 import { PrismaService } from '../prisma/prisma.service';
 import { PAYMENT_PROVIDER } from '../config/provider.tokens';
 import type {
@@ -52,6 +53,48 @@ export class WalletService {
       data.subscriptionExpiry = new Date(Date.now() + days * 86_400_000);
     }
     return this.prisma.wallet.update({ where: { userId }, data });
+  }
+
+  /** 充值入账钻石（Stars 支付成功 / dev mock）。 */
+  async creditDiamonds(userId: string, diamonds: number): Promise<WalletDto> {
+    await this.getOrCreate(userId);
+    const w = await this.prisma.wallet.update({ where: { userId }, data: { diamonds: { increment: diamonds } } });
+    return toWalletDto(w);
+  }
+
+  /** 发起充值：有 Bot Token → 返回 Telegram Stars 发票链接；否则回退 mock。 */
+  async recharge(userId: string, packId: string): Promise<RechargeResponse> {
+    const pack = STAR_PACKS.find((p) => p.id === packId);
+    if (!pack) throw new BadRequestException({ code: 'BAD_PACK' });
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    if (!token) return { mode: 'mock' };
+    const payload = JSON.stringify({ u: userId, d: pack.diamonds, p: pack.id });
+    const invoiceLink = await createStarsInvoiceLink(token, {
+      title: `${pack.diamonds} 钻石`,
+      description: 'LinkU 语聊房钻石充值',
+      payload,
+      prices: [{ label: pack.label, amount: pack.stars }],
+    });
+    return { mode: 'stars', invoiceLink };
+  }
+
+  /** dev / 非 Telegram 环境：直接按充值包入账（仅演示/联调用）。 */
+  async devRecharge(userId: string, packId: string): Promise<WalletDto> {
+    const pack = STAR_PACKS.find((p) => p.id === packId);
+    if (!pack) throw new BadRequestException({ code: 'BAD_PACK' });
+    return this.creditDiamonds(userId, pack.diamonds);
+  }
+
+  /** Stars 支付成功回调入账（幂等：按 telegram_payment_charge_id 去重）。 */
+  private processedCharges = new Set<string>();
+  async handleStarsPayment(payloadStr: string, chargeId: string): Promise<void> {
+    if (chargeId && this.processedCharges.has(chargeId)) return;
+    let parsed: { u?: string; d?: number };
+    try { parsed = JSON.parse(payloadStr); } catch { return; }
+    if (!parsed.u || !parsed.d) return;
+    await this.creditDiamonds(parsed.u, parsed.d);
+    if (chargeId) this.processedCharges.add(chargeId);
+    new Logger('WalletService').log(`Stars 入账 ${parsed.d}💎 → ${parsed.u} (charge ${chargeId})`);
   }
 
   /** Atomic diamond deduction for gifts; throws if insufficient. */

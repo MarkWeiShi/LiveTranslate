@@ -7,3 +7,4 @@ export * from './attribution';
 export * from './room';
 export * from './growth';
 export * from './werewolf';
+export * from './payments';

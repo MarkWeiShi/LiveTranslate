@@ -120,6 +120,41 @@ async function main() {
   const [rqA] = await Promise.all([resQA, resQB]);
   ok('PK：结算 A 胜（20 分）', rqA.v?.winner?.userId === aId && rqA.v?.winner?.score === 20, rqA.err ?? `winner=${rqA.v?.winner?.displayName} score=${rqA.v?.winner?.score}`);
 
+  // ---- 座位制：上麦申请 → 房主审批 ----
+  const reqP = safe(waitFor(sa, 'room.mic_requests', { predicate: (p) => p.requests.some((r) => r.userId === bId) }));
+  await req('POST', `/rooms/${roomId}/mic/apply`, { token: bTok, body: { seatIndex: 2 } });
+  const reqs = await reqP;
+  ok('座位：房主收到 B 的上麦申请（想坐2号）', reqs.v?.requests?.some((r) => r.userId === bId && r.seatIndex === 2), reqs.err ?? `reqs=${JSON.stringify(reqs.v?.requests)}`);
+  const seatsP = safe(waitFor(sb, 'room.seats', { predicate: (p) => p.seats.some((s) => s.userId === bId) }));
+  await req('POST', `/rooms/${roomId}/mic/approve`, { token: aTok, body: { userId: bId, seatIndex: 2 } });
+  const seatsAfter = await seatsP;
+  const bSeat = seatsAfter.v?.seats?.find((s) => s.userId === bId);
+  ok('座位：A 同意后 B 坐到 2 号麦', bSeat?.index === 2, seatsAfter.err ?? `seat=${bSeat?.index}`);
+  ok('座位：A 是房主占 0 号麦', seatsAfter.v?.seats?.[0]?.userId === aId && seatsAfter.v?.hostId === aId, `host=${seatsAfter.v?.hostId}`);
+  // 非房主审批应被拒
+  const badApprove = await req('POST', `/rooms/${roomId}/mic/approve`, { token: bTok, body: { userId: aId } });
+  ok('座位：非房主审批被拒（NOT_HOST）', badApprove.status >= 400 && badApprove.json?.code === 'NOT_HOST', `status=${badApprove.status}`);
+
+  // ---- 送礼扣费 + Telegram Stars（dev 入账）----
+  const before = (await req('GET', '/wallet', { token: aTok })).json?.diamonds ?? 0;
+  const rc = await req('POST', '/wallet/recharge/dev', { token: aTok, body: { packId: 'p4' } });
+  ok('充值：dev 入账 +1300💎', rc.json?.diamonds === before + 1300, `diamonds=${rc.json?.diamonds}`);
+  const giftBP = safe(waitFor(sb, 'room.gift', { predicate: (p) => p.fromUserId === aId }));
+  const giftAP = safe(waitFor(sa, 'room.gift', { predicate: (p) => p.fromUserId === aId }));
+  const giftRes = await req('POST', `/rooms/${roomId}/gift`, { token: aTok, body: { giftType: 'rocket', toUserId: bId } });
+  const [gB, gA] = await Promise.all([giftBP, giftAP]);
+  ok('送礼：B 收到广播（服务端定价 rocket=520，受赠B）', gB.v?.giftType === 'rocket' && gB.v?.coins === 520 && gB.v?.toUserId === bId, gB.err ?? `got=${JSON.stringify(gB.v)}`);
+  ok('送礼：发送者本人也收到（用于飘屏/连击）', gA.v?.fromUserId === aId, gA.err ?? '');
+  ok('送礼：扣费后余额 = 充值后-520', giftRes.json?.balance === before + 1300 - 520, `balance=${giftRes.json?.balance}`);
+  // 余额不足 → 402（B 余额为 0 时校验，否则跳过）
+  const bBal = (await req('GET', '/wallet', { token: bTok })).json?.diamonds ?? 0;
+  if (bBal < 1) {
+    const poor = await req('POST', `/rooms/${roomId}/gift`, { token: bTok, body: { giftType: 'rose' } });
+    ok('送礼：余额不足返回 402 INSUFFICIENT_DIAMONDS', poor.status === 402 && poor.json?.code === 'INSUFFICIENT_DIAMONDS', `status=${poor.status} code=${poor.json?.code}`);
+  } else {
+    ok('送礼：余额不足校验（跳过，B 余额>0）', true);
+  }
+
   sa.close(); sb.close();
   console.log(`\n=== ${pass} passed, ${fail} failed ===`);
   process.exitCode = fail ? 1 : 0;

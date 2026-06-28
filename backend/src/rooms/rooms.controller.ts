@@ -84,7 +84,7 @@ export class RoomsController {
 
   @Post(':id/gift')
   gift(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() body: GiftDto) {
-    return this.rooms.gift(id, u.userId, body.giftType, body.coins, body.toUserId);
+    return this.rooms.gift(id, u.userId, body.giftType, body.toUserId);
   }
 
   // ---- 座位制 ----

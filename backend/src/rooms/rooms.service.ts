@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import {
   ROOM_EVENTS,
   type CreateRoomResponse,
@@ -21,6 +21,7 @@ import {
   type MicRequestEntry,
   type RoomMicRequestsPayload,
   NUM_SEATS,
+  ROOM_GIFT_PRICE,
 } from '@linku/shared';
 import { QUIZ_BANK, localizedQuestion } from './quiz-bank';
 import { MEDIA_TRANSPORT, TRANSLATION_ENGINE } from '../config/provider.tokens';
@@ -28,6 +29,7 @@ import type { MediaTransport } from '../adapters/media/media-transport.interface
 import type { TranslationEngine } from '../adapters/translation/translation-engine.interface';
 import { RealtimeEmitter } from '../realtime/realtime.emitter';
 import { PrismaService } from '../prisma/prisma.service';
+import { WalletService } from '../wallet/wallet.service';
 
 interface TelephoneState {
   gameId: string;
@@ -67,6 +69,7 @@ export class RoomsService {
     @Inject(TRANSLATION_ENGINE) private engine: TranslationEngine,
     private emitter: RealtimeEmitter,
     private prisma: PrismaService,
+    private wallet: WalletService,
   ) {}
 
   async create(userId: string): Promise<CreateRoomResponse> {
@@ -295,11 +298,25 @@ export class RoomsService {
     return { recipients: all.length };
   }
 
-  /** 送礼：广播给全房（含发送者）→ 各端播放飘屏 + 累计魅力值。 */
-  gift(roomId: string, fromUserId: string, giftType: string, coins: number, toUserId?: string | null): { ok: true } {
+  /** 送礼：服务端按目录定价 → 扣发送者钻石（不足报 402）→ 广播全房飘屏 + 累计魅力值。 */
+  async gift(roomId: string, fromUserId: string, giftType: string, toUserId?: string | null): Promise<{ ok: true; balance: number }> {
     const room = this.must(roomId);
     const from = room.members.get(fromUserId);
     if (!from) throw new BadRequestException({ code: 'NOT_IN_ROOM' });
+    const coins = ROOM_GIFT_PRICE[giftType];
+    if (coins == null) throw new BadRequestException({ code: 'UNKNOWN_GIFT' });
+
+    let balance: number;
+    try {
+      const w = await this.wallet.deductDiamonds(fromUserId, coins);
+      balance = w.diamonds;
+    } catch (e) {
+      if ((e as { code?: string })?.code === 'INSUFFICIENT_DIAMONDS') {
+        throw new HttpException({ code: 'INSUFFICIENT_DIAMONDS', message: '钻石不足，请充值' }, HttpStatus.PAYMENT_REQUIRED);
+      }
+      throw e;
+    }
+
     const payload: RoomGiftPayload = {
       roomId,
       fromUserId,
@@ -310,7 +327,7 @@ export class RoomsService {
       ts: Date.now(),
     };
     this.emitter.emitToUsers([...room.members.keys()], ROOM_EVENTS.GIFT, payload);
-    return { ok: true };
+    return { ok: true, balance };
   }
 
   /** 上麦排队：raise=入队，lower=出队；广播最新队列给全房。 */
