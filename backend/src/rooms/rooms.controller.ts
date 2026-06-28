@@ -3,10 +3,13 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser, type AuthUser } from '../common/decorators/current-user.decorator';
 import { RoomsService } from './rooms.service';
 import {
+  ApplyMicDto,
   BarrageDto,
   GiftDto,
   JoinRoomDto,
+  MicDecisionDto,
   QuizAnswerDto,
+  SeatTargetDto,
   TelephonePassDto,
   TelephoneStartDto,
   UtteranceDto,
@@ -82,5 +85,36 @@ export class RoomsController {
   @Post(':id/gift')
   gift(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() body: GiftDto) {
     return this.rooms.gift(id, u.userId, body.giftType, body.coins, body.toUserId);
+  }
+
+  // ---- 座位制 ----
+  @Post(':id/mic/apply')
+  applyMic(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() body: ApplyMicDto) {
+    return this.rooms.applyMic(id, u.userId, body.seatIndex);
+  }
+
+  @Post(':id/mic/approve')
+  approveMic(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() body: MicDecisionDto) {
+    return this.rooms.approveMic(id, u.userId, body.userId, body.seatIndex);
+  }
+
+  @Post(':id/mic/reject')
+  rejectMic(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() body: MicDecisionDto) {
+    return this.rooms.rejectMic(id, u.userId, body.userId);
+  }
+
+  @Post(':id/mic/leave')
+  leaveSeat(@CurrentUser() u: AuthUser, @Param('id') id: string) {
+    return this.rooms.leaveSeat(id, u.userId);
+  }
+
+  @Post(':id/mic/mute')
+  muteSeat(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() body: SeatTargetDto) {
+    return this.rooms.muteSeat(id, u.userId, body.seatIndex, body.muted ?? true);
+  }
+
+  @Post(':id/mic/kick')
+  kickSeat(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() body: SeatTargetDto) {
+    return this.rooms.kickSeat(id, u.userId, body.seatIndex);
   }
 }

@@ -14,7 +14,32 @@ export const ROOM_EVENTS = {
   QUIZ_QUESTION: 'room.quiz_question', // PK 抢答：出题（按各自语言）
   QUIZ_RESULT: 'room.quiz_result', // PK 抢答：结算
   GIFT: 'room.gift', // 送礼（BIGO 式）：广播给全房 → 飘屏 + 累计魅力值
+  SEATS: 'room.seats', // 麦位快照（speaker/audience 分离）：广播给全房
+  MIC_REQUESTS: 'room.mic_requests', // 上麦申请列表：仅发给房主
 } as const;
+
+// ---------- 座位制（speaker/audience + 上麦审批）----------
+export const NUM_SEATS = 9; // 0=房主，1..8 普通麦位
+export interface SeatDto {
+  index: number;
+  userId: string | null;
+  displayName: string | null;
+  language: string | null;
+  locked: boolean;
+  muted: boolean;
+  isHost: boolean;
+}
+export interface RoomSeatsPayload {
+  roomId: string;
+  seats: SeatDto[];
+  audienceCount: number;
+  hostId: string | null;
+}
+export interface MicRequestEntry { userId: string; displayName: string; seatIndex: number | null }
+export interface RoomMicRequestsPayload { roomId: string; requests: MicRequestEntry[] }
+export interface ApplyMicBody { seatIndex?: number | null }
+export interface MicDecisionBody { userId: string; seatIndex?: number | null }
+export interface SeatTargetBody { seatIndex: number; muted?: boolean }
 
 export interface RoomMemberDto {
   userId: string;
@@ -42,6 +67,8 @@ export interface JoinRoomResponse {
   room: string;
   token: string;
   members: RoomMemberDto[];
+  seats: SeatDto[];
+  hostId: string | null;
 }
 export interface UtteranceBody {
   text: string; // MVP：一句话（真实模式由 STT 产出）

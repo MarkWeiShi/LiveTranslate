@@ -65,6 +65,18 @@ export const api = {
     apiFetch<{ ok: true }>('POST', `/rooms/${id}/quiz/answer`, { questionId, choice }),
   roomGift: (id: string, giftType: string, coins: number, toUserId?: string | null) =>
     apiFetch<{ ok: true }>('POST', `/rooms/${id}/gift`, { giftType, coins, toUserId }),
+  // 座位制
+  micApply: (id: string, seatIndex?: number | null) =>
+    apiFetch<{ ok: true }>('POST', `/rooms/${id}/mic/apply`, { seatIndex }),
+  micApprove: (id: string, userId: string, seatIndex?: number | null) =>
+    apiFetch<{ ok: true }>('POST', `/rooms/${id}/mic/approve`, { userId, seatIndex }),
+  micReject: (id: string, userId: string) =>
+    apiFetch<{ ok: true }>('POST', `/rooms/${id}/mic/reject`, { userId }),
+  micLeave: (id: string) => apiFetch<{ ok: true }>('POST', `/rooms/${id}/mic/leave`),
+  micMute: (id: string, seatIndex: number, muted: boolean) =>
+    apiFetch<{ ok: true }>('POST', `/rooms/${id}/mic/mute`, { seatIndex, muted }),
+  micKick: (id: string, seatIndex: number) =>
+    apiFetch<{ ok: true }>('POST', `/rooms/${id}/mic/kick`, { seatIndex }),
   // 跨语言狼人杀
   wolfCreate: (boardKey: string, language: string) =>
     apiFetch<WolfCreateResponse>('POST', '/werewolf', { boardKey, language }),

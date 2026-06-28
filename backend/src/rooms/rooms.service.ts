@@ -16,6 +16,11 @@ import {
   type QuizResultPayload,
   type QuizScore,
   type RoomGiftPayload,
+  type SeatDto,
+  type RoomSeatsPayload,
+  type MicRequestEntry,
+  type RoomMicRequestsPayload,
+  NUM_SEATS,
 } from '@linku/shared';
 import { QUIZ_BANK, localizedQuestion } from './quiz-bank';
 import { MEDIA_TRANSPORT, TRANSLATION_ENGINE } from '../config/provider.tokens';
@@ -37,14 +42,19 @@ interface QuizState {
   scores: Map<string, number>;
   solved: boolean; // 本题是否已有人答对（抢答）
 }
+interface SeatSlot { userId: string | null; locked: boolean; muted: boolean }
 interface RoomState {
   id: string;
   room: string; // media 房间名
   createdAt: Date;
   members: Map<string, RoomMemberDto>;
-  queue: string[]; // 上麦排队（userId，FIFO）
+  queue: string[]; // 上麦排队（userId，FIFO）—旧弹幕玩法保留
   telephone: TelephoneState | null;
   quiz: QuizState | null;
+  // 座位制（speaker/audience + 上麦审批）
+  hostId: string | null;
+  seats: SeatSlot[]; // 长度 NUM_SEATS；0=房主
+  micRequests: Map<string, number | null>; // userId -> 申请的座位号（null=任意空位）
 }
 
 @Injectable()
@@ -70,6 +80,9 @@ export class RoomsService {
       queue: [],
       telephone: null,
       quiz: null,
+      hostId: null,
+      seats: Array.from({ length: NUM_SEATS }, () => ({ userId: null, locked: false, muted: false })),
+      micRequests: new Map(),
     });
     const token = await this.media.mintToken(userId, handle.room);
     return { roomId: id, room: handle.room, token };
@@ -85,12 +98,19 @@ export class RoomsService {
     };
     room.members.set(userId, member);
 
+    // 首位加入者 = 房主，占 0 号麦位
+    if (!room.hostId) {
+      room.hostId = userId;
+      room.seats[0].userId = userId;
+    }
+
     // 通知房内其他成员有人加入
     const others = [...room.members.values()].filter((m) => m.userId !== userId).map((m) => m.userId);
     this.emitter.emitToUsers(others, ROOM_EVENTS.MEMBER_JOINED, { roomId, member });
+    this.broadcastSeats(room);
 
     const token = await this.media.mintToken(userId, room.room);
-    return { roomId, room: room.room, token, members: [...room.members.values()] };
+    return { roomId, room: room.room, token, members: [...room.members.values()], seats: this.seatDtos(room), hostId: room.hostId };
   }
 
   /** 发言扇出：把发言者母语的一句话，翻成每个其他成员的母语并推送字幕（发言者本人不收）。 */
@@ -121,10 +141,133 @@ export class RoomsService {
     const room = this.rooms.get(roomId);
     if (!room) return { ok: true };
     room.members.delete(userId);
+    room.micRequests.delete(userId);
+    // 释放其麦位
+    const si = room.seats.findIndex((s) => s.userId === userId);
+    if (si >= 0) room.seats[si] = { userId: null, locked: false, muted: false };
+    // 房主离开：把房主转移给剩余成员之一，并坐到 0 号
+    if (room.hostId === userId) {
+      const next = [...room.members.keys()][0] ?? null;
+      room.hostId = next;
+      if (next) {
+        const ns = room.seats.findIndex((s) => s.userId === next);
+        if (ns >= 0) room.seats[ns].userId = null;
+        room.seats[0].userId = next;
+      }
+    }
     const others = [...room.members.values()].map((m) => m.userId);
     this.emitter.emitToUsers(others, ROOM_EVENTS.MEMBER_LEFT, { roomId, userId });
-    if (room.members.size === 0) this.rooms.delete(roomId);
+    if (room.members.size === 0) { this.rooms.delete(roomId); return { ok: true }; }
+    this.broadcastSeats(room);
+    this.broadcastRequests(room);
     return { ok: true };
+  }
+
+  // ---------- 座位制：上麦申请 / 审批 / 下麦 / 房主管理 ----------
+
+  /** 申请上麦：加入待审批列表（可指定座位号）。房主自己无需申请。 */
+  applyMic(roomId: string, userId: string, seatIndex?: number | null): { ok: true } {
+    const room = this.must(roomId);
+    if (!room.members.has(userId)) throw new BadRequestException({ code: 'NOT_IN_ROOM' });
+    if (room.seats.some((s) => s.userId === userId)) return { ok: true }; // 已在麦上
+    const target = typeof seatIndex === 'number' && seatIndex >= 1 && seatIndex < NUM_SEATS ? seatIndex : null;
+    room.micRequests.set(userId, target);
+    this.broadcastRequests(room);
+    return { ok: true };
+  }
+
+  /** 房主同意上麦：把申请者分配到（申请的或第一个空闲）座位。 */
+  approveMic(roomId: string, actingId: string, targetUserId: string, seatIndex?: number | null): { ok: true } {
+    const room = this.must(roomId);
+    if (room.hostId !== actingId) throw new BadRequestException({ code: 'NOT_HOST' });
+    if (!room.members.has(targetUserId)) throw new BadRequestException({ code: 'NOT_IN_ROOM' });
+    const requested = seatIndex ?? room.micRequests.get(targetUserId) ?? null;
+    const idx = this.pickSeat(room, requested);
+    if (idx < 0) throw new BadRequestException({ code: 'NO_FREE_SEAT' });
+    // 清掉其原座位（若有）
+    const old = room.seats.findIndex((s) => s.userId === targetUserId);
+    if (old >= 0) room.seats[old].userId = null;
+    room.seats[idx].userId = targetUserId;
+    room.micRequests.delete(targetUserId);
+    this.broadcastSeats(room);
+    this.broadcastRequests(room);
+    return { ok: true };
+  }
+
+  /** 房主拒绝上麦申请。 */
+  rejectMic(roomId: string, actingId: string, targetUserId: string): { ok: true } {
+    const room = this.must(roomId);
+    if (room.hostId !== actingId) throw new BadRequestException({ code: 'NOT_HOST' });
+    room.micRequests.delete(targetUserId);
+    this.broadcastRequests(room);
+    return { ok: true };
+  }
+
+  /** 主动下麦（房主不可下 0 号）。 */
+  leaveSeat(roomId: string, userId: string): { ok: true } {
+    const room = this.must(roomId);
+    const si = room.seats.findIndex((s) => s.userId === userId);
+    if (si > 0) { room.seats[si] = { userId: null, locked: false, muted: false }; this.broadcastSeats(room); }
+    return { ok: true };
+  }
+
+  /** 房主：静音/取消静音某座位。 */
+  muteSeat(roomId: string, actingId: string, seatIndex: number, muted: boolean): { ok: true } {
+    const room = this.must(roomId);
+    if (room.hostId !== actingId) throw new BadRequestException({ code: 'NOT_HOST' });
+    if (seatIndex >= 0 && seatIndex < NUM_SEATS) { room.seats[seatIndex].muted = muted; this.broadcastSeats(room); }
+    return { ok: true };
+  }
+
+  /** 房主：抱某人下麦（不可踢 0 号房主）。 */
+  kickSeat(roomId: string, actingId: string, seatIndex: number): { ok: true } {
+    const room = this.must(roomId);
+    if (room.hostId !== actingId) throw new BadRequestException({ code: 'NOT_HOST' });
+    if (seatIndex > 0 && seatIndex < NUM_SEATS) { room.seats[seatIndex] = { userId: null, locked: false, muted: false }; this.broadcastSeats(room); }
+    return { ok: true };
+  }
+
+  private pickSeat(room: RoomState, requested: number | null): number {
+    if (typeof requested === 'number' && requested >= 1 && requested < NUM_SEATS && !room.seats[requested].userId && !room.seats[requested].locked) return requested;
+    for (let i = 1; i < NUM_SEATS; i++) if (!room.seats[i].userId && !room.seats[i].locked) return i;
+    return -1;
+  }
+
+  private seatDtos(room: RoomState): SeatDto[] {
+    return room.seats.map((s, i) => {
+      const m = s.userId ? room.members.get(s.userId) : null;
+      return {
+        index: i,
+        userId: s.userId,
+        displayName: m?.displayName ?? null,
+        language: m?.language ?? null,
+        locked: s.locked,
+        muted: s.muted,
+        isHost: i === 0,
+      };
+    });
+  }
+
+  private broadcastSeats(room: RoomState) {
+    const occupied = room.seats.filter((s) => s.userId).length;
+    const payload: RoomSeatsPayload = {
+      roomId: room.id,
+      seats: this.seatDtos(room),
+      audienceCount: Math.max(0, room.members.size - occupied),
+      hostId: room.hostId,
+    };
+    this.emitter.emitToUsers([...room.members.keys()], ROOM_EVENTS.SEATS, payload);
+  }
+
+  private broadcastRequests(room: RoomState) {
+    if (!room.hostId) return;
+    const requests: MicRequestEntry[] = [...room.micRequests.entries()].map(([uid, seatIndex]) => ({
+      userId: uid,
+      displayName: room.members.get(uid)?.displayName ?? uid,
+      seatIndex,
+    }));
+    const payload: RoomMicRequestsPayload = { roomId: room.id, requests };
+    this.emitter.emitToUser(room.hostId, ROOM_EVENTS.MIC_REQUESTS, payload);
   }
 
   get(roomId: string): RoomDto {

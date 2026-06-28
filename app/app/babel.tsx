@@ -3,14 +3,16 @@ import { ScrollView, StyleSheet, Text, TextInput, View, Pressable } from 'react-
 import { useRouter } from 'expo-router';
 import {
   ROOM_EVENTS,
-  type QueueEntry,
   type RoomBarragePayload,
   type RoomCaptionPayload,
   type RoomMemberDto,
   type RoomMemberJoinedPayload,
   type RoomMemberLeftPayload,
-  type RoomQueuePayload,
   type RoomGiftPayload,
+  type SeatDto,
+  type RoomSeatsPayload,
+  type RoomMicRequestsPayload,
+  type MicRequestEntry,
   type TelephoneResultPayload,
   type TelephoneTurnPayload,
   type QuizQuestionPayload,
@@ -50,8 +52,13 @@ export default function BabelRoomScreen() {
   const [roomInput, setRoomInput] = useState('');
   const [roomId, setRoomId] = useState<string | null>(null);
   const [members, setMembers] = useState<RoomMemberDto[]>([]);
+  const [seats, setSeats] = useState<SeatDto[]>([]);
+  const [hostId, setHostId] = useState<string | null>(null);
+  const [audienceCount, setAudienceCount] = useState(0);
+  const [micRequests, setMicRequests] = useState<MicRequestEntry[]>([]);
+  const [showRequests, setShowRequests] = useState(false);
+  const [seatAction, setSeatAction] = useState<SeatDto | null>(null);
   const [captions, setCaptions] = useState<RoomCaptionPayload[]>([]);
-  const [queue, setQueue] = useState<QueueEntry[]>([]);
   const [telTurn, setTelTurn] = useState<TelephoneTurnPayload | null>(null);
   const [telResult, setTelResult] = useState<TelephoneResultPayload | null>(null);
   const [quizQ, setQuizQ] = useState<QuizQuestionPayload | null>(null);
@@ -68,7 +75,7 @@ export default function BabelRoomScreen() {
   const [flyItems, setFlyItems] = useState<GiftFlyItem[]>([]);
   const [bigGift, setBigGift] = useState<GiftFlyItem | null>(null);
   const [giftPanel, setGiftPanel] = useState(false);
-  const [giftTarget, setGiftTarget] = useState<RoomMemberDto | null>(null);
+  const [giftTarget, setGiftTarget] = useState<{ userId: string; displayName: string } | null>(null);
   const [balance, setBalance] = useState(0);
   const [showGames, setShowGames] = useState(false);
   const [showInput, setShowInput] = useState(false);
@@ -78,8 +85,10 @@ export default function BabelRoomScreen() {
   const flyId = useRef(0);
   const comboRef = useRef<{ key: string; id: number; combo: number; ts: number } | null>(null);
 
-  const handUp = !!myId && queue.some((q) => q.userId === myId);
   const isSpeaking = (uid: string | null) => !!uid && (speaking[uid] ?? 0) > Date.now();
+  const isHost = !!myId && hostId === myId;
+  const mySeat = seats.find((s) => s.userId === myId) ?? null;
+  const onMic = !!mySeat;
 
   useEffect(() => { if (token && !getSocket()) connectWs(token); }, [token]);
   useEffect(() => () => { audioRef.current?.disconnect(); audioRef.current = null; }, []);
@@ -127,34 +136,37 @@ export default function BabelRoomScreen() {
       markSpeaking(p.fromUserId);
       requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
     };
-    const onQueue = (p: RoomQueuePayload) => { if (p.roomId === roomId) setQueue(p.queue); };
     const onTurn = (p: TelephoneTurnPayload) => { if (p.roomId === roomId) { setTelTurn(p); setTelResult(null); } };
     const onResult = (p: TelephoneResultPayload) => { if (p.roomId === roomId) { setTelResult(p); setTelTurn(null); } };
     const onQuizQ = (p: QuizQuestionPayload) => { if (p.roomId === roomId) { setQuizQ(p); setQuizResult(null); setAnswered(false); } };
     const onQuizR = (p: QuizResultPayload) => { if (p.roomId === roomId) { setQuizResult(p); setQuizQ(null); } };
     const onGift = (p: RoomGiftPayload) => { if (p.roomId === roomId) pushGift(p); };
+    const onSeats = (p: RoomSeatsPayload) => { if (p.roomId === roomId) { setSeats(p.seats); setAudienceCount(p.audienceCount); setHostId(p.hostId); } };
+    const onMicReqs = (p: RoomMicRequestsPayload) => { if (p.roomId === roomId) setMicRequests(p.requests); };
 
     socket.on(ROOM_EVENTS.CAPTION, onCaption);
     socket.on(ROOM_EVENTS.MEMBER_JOINED, onJoined);
     socket.on(ROOM_EVENTS.MEMBER_LEFT, onLeft);
     socket.on(ROOM_EVENTS.BARRAGE, onBarrage);
-    socket.on(ROOM_EVENTS.QUEUE_UPDATED, onQueue);
     socket.on(ROOM_EVENTS.TELEPHONE_TURN, onTurn);
     socket.on(ROOM_EVENTS.TELEPHONE_RESULT, onResult);
     socket.on(ROOM_EVENTS.QUIZ_QUESTION, onQuizQ);
     socket.on(ROOM_EVENTS.QUIZ_RESULT, onQuizR);
     socket.on(ROOM_EVENTS.GIFT, onGift);
+    socket.on(ROOM_EVENTS.SEATS, onSeats);
+    socket.on(ROOM_EVENTS.MIC_REQUESTS, onMicReqs);
     return () => {
       socket.off(ROOM_EVENTS.CAPTION, onCaption);
       socket.off(ROOM_EVENTS.MEMBER_JOINED, onJoined);
       socket.off(ROOM_EVENTS.MEMBER_LEFT, onLeft);
       socket.off(ROOM_EVENTS.BARRAGE, onBarrage);
-      socket.off(ROOM_EVENTS.QUEUE_UPDATED, onQueue);
       socket.off(ROOM_EVENTS.TELEPHONE_TURN, onTurn);
       socket.off(ROOM_EVENTS.TELEPHONE_RESULT, onResult);
       socket.off(ROOM_EVENTS.QUIZ_QUESTION, onQuizQ);
       socket.off(ROOM_EVENTS.QUIZ_RESULT, onQuizR);
       socket.off(ROOM_EVENTS.GIFT, onGift);
+      socket.off(ROOM_EVENTS.SEATS, onSeats);
+      socket.off(ROOM_EVENTS.MIC_REQUESTS, onMicReqs);
     };
   }, [roomId]);
 
@@ -165,6 +177,8 @@ export default function BabelRoomScreen() {
       if (!id) id = (await api.createRoom()).roomId;
       const res = await api.joinRoom(id, lang);
       setMembers(res.members);
+      setSeats(res.seats);
+      setHostId(res.hostId);
       setRoomId(id);
       connectRoomAudio(res.token).then((h) => { audioRef.current = h; setAudioOn(!!h); }).catch(() => {});
       api.wallet().then((w) => setBalance(w.diamonds)).catch(() => {});
@@ -174,14 +188,20 @@ export default function BabelRoomScreen() {
 
   const send = async (t: string) => { const b = t.trim(); if (!b || !roomId) return; setText(''); try { await api.roomUtterance(roomId, b); } catch { /* ignore */ } };
   const barrage = async () => { const b = text.trim(); if (!b || !roomId) return; setText(''); try { await api.roomBarrage(roomId, b); } catch { /* ignore */ } };
-  const toggleHand = async () => { if (!roomId) return; try { handUp ? await api.roomLowerHand(roomId) : await api.roomRaiseHand(roomId); } catch { /* ignore */ } };
+  const toggleMic = async () => { if (!roomId) return; try { onMic ? await api.micLeave(roomId) : await api.micApply(roomId); } catch { /* ignore */ } };
+  const approve = async (uid: string, seatIndex: number | null) => { if (roomId) try { await api.micApprove(roomId, uid, seatIndex); } catch { /* ignore */ } };
+  const reject = async (uid: string) => { if (roomId) try { await api.micReject(roomId, uid); } catch { /* ignore */ } };
   const startTel = async () => { if (!roomId) return; const seed = (PHRASES[lang] ?? PHRASES.en)[0]; try { await api.telephoneStart(roomId, seed); } catch (e) { setError(e instanceof Error ? e.message : ''); } };
   const passTel = async () => { if (!roomId || !telTurn) return; const t = passText.trim() || telTurn.heardText; setPassText(''); try { await api.telephonePass(roomId, telTurn.gameId, t); setTelTurn(null); } catch { /* ignore */ } };
   const startQuiz = async () => { if (!roomId) return; try { await api.quizStart(roomId); } catch (e) { setError(e instanceof Error ? e.message : ''); } };
   const answerQuiz = async (choice: number) => { if (!roomId || !quizQ || answered) return; setAnswered(true); try { await api.quizAnswer(roomId, quizQ.questionId, choice); } catch { /* ignore */ } };
   const sendGift = async (g: GiftDef) => { if (!roomId) return; setGiftPanel(false); try { await api.roomGift(roomId, g.type, g.coins, giftTarget?.userId ?? null); } catch { /* ignore */ } };
-  const onSeatPress = (m: RoomMemberDto | null) => { if (!m) { toggleHand(); return; } setGiftTarget(m); setGiftPanel(true); };
-  const openGift = () => { setGiftTarget(members[0] ?? null); setGiftPanel(true); };
+  const onSeatPress = (seat: SeatDto) => {
+    if (!seat.userId) { if (seat.index >= 1 && roomId) api.micApply(roomId, seat.index).catch(() => {}); return; }
+    if (isHost && !seat.isHost && seat.userId !== myId) { setSeatAction(seat); return; }
+    setGiftTarget({ userId: seat.userId, displayName: seat.displayName ?? '' }); setGiftPanel(true);
+  };
+  const openGift = () => { const h = seats[0]; setGiftTarget(h?.userId ? { userId: h.userId, displayName: h.displayName ?? '' } : null); setGiftPanel(true); };
   const leave = async () => { audioRef.current?.disconnect(); audioRef.current = null; if (roomId) { try { await api.leaveRoom(roomId); } catch { /* ignore */ } } router.back(); };
 
   // ---------- 进房前 ----------
@@ -202,10 +222,9 @@ export default function BabelRoomScreen() {
   }
 
   // ---------- 房内（BIGO 布局）----------
-  const host = members[0] ?? null;
-  const seatMembers = members.slice(1, 9);
-  const seats: (RoomMemberDto | null)[] = Array.from({ length: 8 }, (_, i) => seatMembers[i] ?? null);
-  const toSeatMember = (m: RoomMemberDto | null): SeatMember | null => (m ? { userId: m.userId, displayName: m.displayName } : null);
+  const hostSeat = seats[0] ?? null;
+  const gridSeats = seats.slice(1);
+  const seatMember = (seat: SeatDto | null): SeatMember | null => (seat?.userId ? { userId: seat.userId, displayName: seat.displayName ?? '' } : null);
 
   return (
     <View style={s.room}>
@@ -214,25 +233,32 @@ export default function BabelRoomScreen() {
         <Pressable onPress={leave}><Text style={s.topIcon}>←</Text></Pressable>
         <View style={{ flex: 1 }}>
           <Text style={s.roomName} numberOfLines={1}>房间 {roomId.slice(0, 6)}</Text>
-          <Text style={s.roomMeta}>在线 {members.length} · {audioOn ? '🎧 语音' : ENV.transport === 'livekit' ? '语音未连' : '💬 打字'}</Text>
+          <Text style={s.roomMeta}>在线 {members.length} · 听众 {audienceCount} · {audioOn ? '🎧' : ENV.transport === 'livekit' ? '语音未连' : '💬'}</Text>
         </View>
-        <Text selectable style={s.roomIdCopy}>{roomId.slice(0, 8)}…</Text>
+        {isHost && (
+          <Pressable onPress={() => setShowRequests(true)} style={s.reqBtn}>
+            <Text style={s.reqText}>上麦{micRequests.length > 0 ? ` ·${micRequests.length}` : ''}</Text>
+          </Pressable>
+        )}
       </View>
 
       {/* 麦位区 */}
       <View style={s.hostRow}>
-        <MicSeat seatNo={0} member={toSeatMember(host)} isHost isMe={host?.userId === myId} speaking={isSpeaking(host?.userId ?? null)} charm={host ? charm[host.userId] ?? 0 : 0} onPress={() => onSeatPress(host)} />
+        {hostSeat && (
+          <MicSeat seatNo={0} member={seatMember(hostSeat)} isHost isMe={hostSeat.userId === myId} muted={hostSeat.muted} speaking={isSpeaking(hostSeat.userId)} charm={hostSeat.userId ? charm[hostSeat.userId] ?? 0 : 0} onPress={() => onSeatPress(hostSeat)} />
+        )}
       </View>
       <View style={s.seatGrid}>
-        {seats.map((m, i) => (
+        {gridSeats.map((seat) => (
           <MicSeat
-            key={i}
-            seatNo={i + 1}
-            member={toSeatMember(m)}
-            isMe={m?.userId === myId}
-            speaking={isSpeaking(m?.userId ?? null)}
-            charm={m ? charm[m.userId] ?? 0 : 0}
-            onPress={() => onSeatPress(m)}
+            key={seat.index}
+            seatNo={seat.index}
+            member={seatMember(seat)}
+            isMe={seat.userId === myId}
+            muted={seat.muted}
+            speaking={isSpeaking(seat.userId)}
+            charm={seat.userId ? charm[seat.userId] ?? 0 : 0}
+            onPress={() => onSeatPress(seat)}
           />
         ))}
       </View>
@@ -292,11 +318,45 @@ export default function BabelRoomScreen() {
 
       {/* 底部操作条 */}
       <View style={s.bottomBar}>
-        <BarBtn label={handUp ? '🎙' : '🔇'} active={handUp} onPress={toggleHand} />
-        <Pressable style={s.fakeInput} onPress={() => setShowInput((v) => !v)}><Text style={s.fakeInputText}>说点什么…</Text></Pressable>
+        <BarBtn label={onMic ? '🎙' : '🙋'} active={onMic} onPress={toggleMic} />
+        <Pressable style={s.fakeInput} onPress={() => setShowInput((v) => !v)}><Text style={s.fakeInputText}>{onMic ? '在麦上 · 点击下麦或说话' : '说点什么…'}</Text></Pressable>
         <BarBtn label="🎮" active={showGames} onPress={() => setShowGames((v) => !v)} />
         <BarBtn label="🎁" onPress={openGift} accent />
       </View>
+
+      {/* 房主：上麦审批面板 */}
+      {showRequests && (
+        <View style={StyleSheet.absoluteFill}>
+          <Pressable style={s.scrim} onPress={() => setShowRequests(false)} />
+          <View style={s.sheet}>
+            <Text style={s.sheetTitle}>上麦申请（{micRequests.length}）</Text>
+            {micRequests.length === 0 ? <Text style={s.dim}>暂无申请</Text> : micRequests.map((r) => (
+              <View key={r.userId} style={s.reqRow}>
+                <Text style={s.reqName} numberOfLines={1}>{r.displayName}{r.seatIndex ? ` · 想坐 ${r.seatIndex} 号` : ''}</Text>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Btn label="同意" variant="primary" onPress={() => approve(r.userId, r.seatIndex)} />
+                  <Btn label="拒绝" variant="ghost" onPress={() => reject(r.userId)} />
+                </View>
+              </View>
+            ))}
+            <Btn label="关闭" variant="ghost" onPress={() => setShowRequests(false)} style={{ marginTop: 8 }} />
+          </View>
+        </View>
+      )}
+
+      {/* 房主：麦位管理 */}
+      {seatAction && (
+        <View style={StyleSheet.absoluteFill}>
+          <Pressable style={s.scrim} onPress={() => setSeatAction(null)} />
+          <View style={s.sheet}>
+            <Text style={s.sheetTitle}>{seatAction.displayName} · {seatAction.index} 号麦</Text>
+            <Btn label="🎁 送礼" variant="primary" onPress={() => { setGiftTarget({ userId: seatAction.userId!, displayName: seatAction.displayName ?? '' }); setSeatAction(null); setGiftPanel(true); }} />
+            <Btn label={seatAction.muted ? '🔊 取消静音' : '🔇 静音'} variant="ghost" onPress={() => { if (roomId) api.micMute(roomId, seatAction.index, !seatAction.muted).catch(() => {}); setSeatAction(null); }} />
+            <Btn label="⬇️ 抱下麦" variant="ghost" onPress={() => { if (roomId) api.micKick(roomId, seatAction.index).catch(() => {}); setSeatAction(null); }} />
+            <Btn label="关闭" variant="ghost" onPress={() => setSeatAction(null)} />
+          </View>
+        </View>
+      )}
 
       {/* 礼物面板 */}
       <GiftPanel visible={giftPanel} balance={balance} targetName={giftTarget?.displayName ?? '全场'} onClose={() => setGiftPanel(false)} onSend={sendGift} />
@@ -327,7 +387,13 @@ const s = StyleSheet.create({
   topIcon: { color: '#fff', fontSize: 22, fontWeight: '700' },
   roomName: { color: '#fff', fontSize: 15, fontWeight: '800' },
   roomMeta: { color: 'rgba(255,255,255,0.55)', fontSize: 11 },
-  roomIdCopy: { color: 'rgba(255,255,255,0.4)', fontSize: 11 },
+  reqBtn: { backgroundColor: wolf.gold, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 7 },
+  reqText: { color: '#1a1614', fontWeight: '800', fontSize: 12 },
+  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
+  sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: '#17131a', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 16, gap: 10, borderTopWidth: 1, borderColor: wolf.border },
+  sheetTitle: { color: '#fff', fontWeight: '800', fontSize: 15 },
+  reqRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)' },
+  reqName: { color: '#fff', fontSize: 14, flex: 1 },
   hostRow: { alignItems: 'center', marginTop: 4 },
   seatGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 4, marginTop: 8, paddingHorizontal: 8 },
   gameCard: { backgroundColor: PANEL, borderWidth: 1, borderColor: wolf.gold, borderRadius: radius.md, padding: 10, gap: 6, marginHorizontal: 12, marginTop: 6 },
