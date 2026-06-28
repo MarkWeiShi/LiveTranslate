@@ -15,7 +15,10 @@ export interface RoomAudioHandle {
  *
  * 狼人杀场景：startMuted=true 进房（保持"单麦"——只在发言轮开麦），由调用方按回合切换。
  */
-export async function connectRoomAudio(token: string, opts: { startMuted?: boolean } = {}): Promise<RoomAudioHandle | null> {
+export async function connectRoomAudio(
+  token: string,
+  opts: { startMuted?: boolean; onActiveSpeakers?: (identities: string[]) => void } = {},
+): Promise<RoomAudioHandle | null> {
   if (ENV.transport !== 'livekit' || !ENV.livekitUrl) return null;
   if (typeof document === 'undefined') return null; // web only
 
@@ -29,6 +32,13 @@ export async function connectRoomAudio(token: string, opts: { startMuted?: boole
       document.body.appendChild(el);
     }
   });
+
+  // 真实音量驱动的"正在说话"：identity = 我们签发 token 时的 userId。
+  if (opts.onActiveSpeakers) {
+    room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
+      opts.onActiveSpeakers!(speakers.map((p) => p.identity).filter(Boolean));
+    });
+  }
 
   await room.connect(ENV.livekitUrl, token);
 

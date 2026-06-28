@@ -104,6 +104,8 @@ export const api = {
     apiFetch<RechargeResponse>('POST', '/wallet/recharge', { packId }),
   walletRechargeDev: (packId: string) =>
     apiFetch<WalletDto>('POST', '/wallet/recharge/dev', { packId }),
+  walletWithdraw: (amount: number) =>
+    apiFetch<WalletDto>('POST', '/wallet/withdraw', { amount }),
   // 成长体系
   growthMe: () => apiFetch<GrowthProfileDto>('GET', '/growth/me'),
   growthAward: (amount: number, reason?: string) =>

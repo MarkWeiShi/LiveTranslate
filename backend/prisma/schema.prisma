@@ -33,10 +33,22 @@ model User {
 model Wallet {
   userId             String    @id
   user               User      @relation(fields: [userId], references: [id])
-  diamonds           Int       @default(0)
+  diamonds           Int       @default(0) // 消费币（充值得到，用于送礼）
+  earnings           Int       @default(0) // 收礼收益（可提现）
   trialSecondsLeft   Int       @default(420)
   subscriptionTier   String    @default("NONE") // NONE|WEEKLY|MONTHLY
   subscriptionExpiry DateTime?
+}
+
+// 提现申请
+model Withdrawal {
+  id        String   @id @default(cuid())
+  userId    String
+  amount    Int
+  status    String   @default("PENDING") // PENDING|PAID|REJECTED
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 model CallSession {

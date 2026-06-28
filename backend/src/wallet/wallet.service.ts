@@ -55,6 +55,36 @@ export class WalletService {
     return this.prisma.wallet.update({ where: { userId }, data });
   }
 
+  /** 收礼收益入账（受赠方）。 */
+  async creditEarnings(userId: string, amount: number): Promise<void> {
+    if (amount <= 0) return;
+    await this.getOrCreate(userId);
+    await this.prisma.wallet.update({ where: { userId }, data: { earnings: { increment: amount } } });
+  }
+
+  /** 提现：从收益扣除并记录申请（PENDING）。 */
+  async withdraw(userId: string, amount: number): Promise<WalletDto> {
+    if (!Number.isInteger(amount) || amount <= 0) throw new BadRequestException({ code: 'BAD_AMOUNT' });
+    try {
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const w = await tx.wallet.findUnique({ where: { userId } });
+        if (!w || w.earnings < amount) {
+          const err = new Error('Insufficient earnings') as Error & { code?: string };
+          err.code = 'INSUFFICIENT_EARNINGS';
+          throw err;
+        }
+        await tx.withdrawal.create({ data: { userId, amount, status: 'PENDING' } });
+        return tx.wallet.update({ where: { userId }, data: { earnings: { decrement: amount } } });
+      });
+      return toWalletDto(updated);
+    } catch (e) {
+      if ((e as { code?: string })?.code === 'INSUFFICIENT_EARNINGS') {
+        throw new BadRequestException({ code: 'INSUFFICIENT_EARNINGS', message: '收益不足' });
+      }
+      throw e;
+    }
+  }
+
   /** 充值入账钻石（Stars 支付成功 / dev mock）。 */
   async creditDiamonds(userId: string, diamonds: number): Promise<WalletDto> {
     await this.getOrCreate(userId);

@@ -31,6 +31,7 @@ export function toWalletDto(w: PrismaWallet): WalletDto {
   return {
     userId: w.userId,
     diamonds: w.diamonds,
+    earnings: w.earnings,
     trialSecondsLeft: w.trialSecondsLeft,
     subscriptionTier: w.subscriptionTier as SubTier,
     subscriptionExpiry: w.subscriptionExpiry

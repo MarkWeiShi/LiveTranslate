@@ -22,6 +22,7 @@ import {
   type RoomMicRequestsPayload,
   NUM_SEATS,
   ROOM_GIFT_PRICE,
+  GIFT_EARN_RATE,
   type MicMode,
 } from '@linku/shared';
 import { QUIZ_BANK, localizedQuestion } from './quiz-bank';
@@ -349,6 +350,11 @@ export class RoomsService {
         throw new HttpException({ code: 'INSUFFICIENT_DIAMONDS', message: '钻石不足，请充值' }, HttpStatus.PAYMENT_REQUIRED);
       }
       throw e;
+    }
+
+    // 受赠方收益入账（可提现）
+    if (toUserId && toUserId !== fromUserId) {
+      await this.wallet.creditEarnings(toUserId, Math.floor(coins * GIFT_EARN_RATE));
     }
 
     const payload: RoomGiftPayload = {

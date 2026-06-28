@@ -81,6 +81,8 @@ export default function BabelRoomScreen() {
   const [giftPanel, setGiftPanel] = useState(false);
   const [giftTarget, setGiftTarget] = useState<{ userId: string; displayName: string } | null>(null);
   const [balance, setBalance] = useState(0);
+  const [earnings, setEarnings] = useState(0);
+  const [liveSpeakers, setLiveSpeakers] = useState<string[]>([]);
   const [showRecharge, setShowRecharge] = useState(false);
   const [rechargeBusy, setRechargeBusy] = useState(false);
   const [showGames, setShowGames] = useState(false);
@@ -91,7 +93,8 @@ export default function BabelRoomScreen() {
   const flyId = useRef(0);
   const comboRef = useRef<{ key: string; id: number; combo: number; ts: number } | null>(null);
 
-  const isSpeaking = (uid: string | null) => !!uid && (speaking[uid] ?? 0) > Date.now();
+  // 优先用 LiveKit 真实音量（liveSpeakers），无 LiveKit 时回退"谁发消息谁亮"（speaking 衰减）。
+  const isSpeaking = (uid: string | null) => !!uid && (liveSpeakers.includes(uid) || (speaking[uid] ?? 0) > Date.now());
   const isHost = !!myId && hostId === myId;
   const mySeat = seats.find((s) => s.userId === myId) ?? null;
   const onMic = !!mySeat;
@@ -146,7 +149,7 @@ export default function BabelRoomScreen() {
     const onResult = (p: TelephoneResultPayload) => { if (p.roomId === roomId) { setTelResult(p); setTelTurn(null); } };
     const onQuizQ = (p: QuizQuestionPayload) => { if (p.roomId === roomId) { setQuizQ(p); setQuizResult(null); setAnswered(false); } };
     const onQuizR = (p: QuizResultPayload) => { if (p.roomId === roomId) { setQuizResult(p); setQuizQ(null); } };
-    const onGift = (p: RoomGiftPayload) => { if (p.roomId === roomId) pushGift(p); };
+    const onGift = (p: RoomGiftPayload) => { if (p.roomId === roomId) { pushGift(p); if (p.toUserId === myId) refreshWallet(); } };
     const onSeats = (p: RoomSeatsPayload) => { if (p.roomId === roomId) { setSeats(p.seats); setAudienceCount(p.audienceCount); setHostId(p.hostId); setMicMode(p.micMode); } };
     const onMicReqs = (p: RoomMicRequestsPayload) => { if (p.roomId === roomId) setMicRequests(p.requests); };
 
@@ -186,8 +189,8 @@ export default function BabelRoomScreen() {
       setSeats(res.seats);
       setHostId(res.hostId);
       setRoomId(id);
-      connectRoomAudio(res.token).then((h) => { audioRef.current = h; setAudioOn(!!h); }).catch(() => {});
-      api.wallet().then((w) => setBalance(w.diamonds)).catch(() => {});
+      connectRoomAudio(res.token, { onActiveSpeakers: setLiveSpeakers }).then((h) => { audioRef.current = h; setAudioOn(!!h); }).catch(() => {});
+      api.wallet().then((w) => { setBalance(w.diamonds); setEarnings(w.earnings); }).catch(() => {});
     } catch (e) { setError(e instanceof Error ? e.message : '进房失败'); }
     finally { setBusy(false); }
   }
@@ -211,7 +214,8 @@ export default function BabelRoomScreen() {
       if (e instanceof ApiError && e.code === 'INSUFFICIENT_DIAMONDS') setShowRecharge(true);
     }
   };
-  const refreshWallet = () => { api.wallet().then((w) => setBalance(w.diamonds)).catch(() => {}); };
+  const refreshWallet = () => { api.wallet().then((w) => { setBalance(w.diamonds); setEarnings(w.earnings); }).catch(() => {}); };
+  const withdraw = async () => { if (earnings <= 0) return; try { const w = await api.walletWithdraw(earnings); setBalance(w.diamonds); setEarnings(w.earnings); } catch { /* ignore */ } };
   const onPickPack = async (pack: StarPack) => {
     if (rechargeBusy) return;
     setRechargeBusy(true);
@@ -416,8 +420,8 @@ export default function BabelRoomScreen() {
       {/* 礼物面板 */}
       <GiftPanel visible={giftPanel} balance={balance} targetName={giftTarget?.displayName ?? '全场'} onClose={() => setGiftPanel(false)} onSend={sendGift} />
 
-      {/* 充值面板 */}
-      <RechargeSheet visible={showRecharge} balance={balance} busy={rechargeBusy} onClose={() => setShowRecharge(false)} onPick={onPickPack} />
+      {/* 钱包：充值 + 收益提现 */}
+      <RechargeSheet visible={showRecharge} balance={balance} earnings={earnings} busy={rechargeBusy} onClose={() => setShowRecharge(false)} onPick={onPickPack} onWithdraw={withdraw} />
     </View>
   );
 }

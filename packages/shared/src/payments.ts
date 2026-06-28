@@ -28,3 +28,7 @@ export const STAR_PACKS: StarPack[] = [
 
 export interface RechargeBody { packId: string }
 export interface RechargeResponse { mode: 'stars' | 'mock'; invoiceLink?: string }
+
+// 收礼收益：受赠方按比例获得可提现收益。
+export const GIFT_EARN_RATE = 0.7;
+export interface WithdrawBody { amount: number }

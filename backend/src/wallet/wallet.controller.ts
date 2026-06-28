@@ -3,7 +3,7 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser, type AuthUser } from '../common/decorators/current-user.decorator';
 import { WalletService } from './wallet.service';
 import { IapVerifyDto } from './dto/iap-verify.dto';
-import { RechargeDto } from './dto/recharge.dto';
+import { RechargeDto, WithdrawDto } from './dto/recharge.dto';
 import { answerPreCheckout } from './telegram-pay';
 
 @Controller()
@@ -31,6 +31,12 @@ export class WalletController {
   @Post('wallet/recharge/dev')
   rechargeDev(@CurrentUser() u: AuthUser, @Body() body: RechargeDto) {
     return this.wallet.devRecharge(u.userId, body.packId);
+  }
+
+  /** 提现收益（记录申请并从收益扣除）。 */
+  @Post('wallet/withdraw')
+  withdraw(@CurrentUser() u: AuthUser, @Body() body: WithdrawDto) {
+    return this.wallet.withdraw(u.userId, body.amount);
   }
 }
 

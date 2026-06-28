@@ -7,22 +7,31 @@ import { colors, wolf, radius } from '@/theme';
 interface Props {
   visible: boolean;
   balance: number;
+  earnings: number;
   busy: boolean;
   onClose: () => void;
   onPick: (pack: StarPack) => void;
+  onWithdraw: () => void;
 }
 
-export function RechargeSheet({ visible, balance, busy, onClose, onPick }: Props) {
+export function RechargeSheet({ visible, balance, earnings, busy, onClose, onPick, onWithdraw }: Props) {
   if (!visible) return null;
   return (
     <View style={StyleSheet.absoluteFill}>
       <Pressable style={styles.scrim} onPress={onClose} />
       <MotiView style={styles.sheet} from={{ translateY: 360 }} animate={{ translateY: 0 }} transition={{ type: 'spring', stiffness: 300, damping: 30 }}>
         <View style={styles.headerRow}>
-          <Text style={styles.title}>充值钻石</Text>
-          <Text style={styles.balance}>当前 💎 {balance}</Text>
+          <Text style={styles.title}>钱包</Text>
+          <Text style={styles.balance}>💎 {balance}</Text>
         </View>
-        <Text style={styles.hint}>用 Telegram Stars ⭐ 支付到账钻石；钻石用于送礼。</Text>
+        {/* 收礼收益 + 提现 */}
+        <View style={styles.earnRow}>
+          <Text style={styles.earnText}>💰 收益 {earnings}</Text>
+          <Pressable disabled={busy || earnings <= 0} onPress={onWithdraw} style={[styles.withdrawBtn, (busy || earnings <= 0) && { opacity: 0.4 }]}>
+            <Text style={styles.withdrawText}>提现</Text>
+          </Pressable>
+        </View>
+        <Text style={styles.hint}>用 Telegram Stars ⭐ 支付到账钻石；钻石用于送礼。收到礼物获得可提现收益。</Text>
         <View style={styles.grid}>
           {STAR_PACKS.map((p) => (
             <Pressable key={p.id} disabled={busy} style={[styles.pack, busy && { opacity: 0.5 }]} onPress={() => onPick(p)}>
@@ -43,6 +52,10 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   title: { color: '#fff', fontWeight: '800', fontSize: 16 },
   balance: { color: wolf.gold, fontWeight: '700' },
+  earnRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: radius.md, paddingHorizontal: 14, paddingVertical: 10 },
+  earnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  withdrawBtn: { backgroundColor: colors.online, borderRadius: radius.pill, paddingHorizontal: 16, paddingVertical: 7 },
+  withdrawText: { color: '#06301f', fontWeight: '800', fontSize: 13 },
   hint: { color: 'rgba(255,255,255,0.55)', fontSize: 12 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'space-between' },
   pack: { width: '47%', alignItems: 'center', paddingVertical: 16, borderRadius: radius.md, borderWidth: 1, borderColor: wolf.gold, backgroundColor: 'rgba(197,160,89,0.1)', gap: 4 },

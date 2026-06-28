@@ -33,6 +33,7 @@ export interface UserCard {
 export interface WalletDto {
   userId: string;
   diamonds: number;
+  earnings: number;
   trialSecondsLeft: number;
   subscriptionTier: SubTier;
   subscriptionExpiry?: string | null;
